@@ -1,0 +1,148 @@
+---
+title: "M234-lab1"
+author: "Zixi Zhang"
+date: "2023-01-17"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library('R2jags')
+```
+
+```{r}
+setwd("/Users/bruce/Documents/23winter/M234/234Lab/Lab1")
+getwd()
+```
+
+## 1. What information is in the chapter 5 tables of the jags user manual?
+
+The tables in the chapter 5 list Type, Usage, Description, Restrictions, and some specific details of different functions.
+
+Table 5.1 shows Base functions(Logical, Comparison, Arithmetic, Power) listed in reverse order of precedence.
+
+Table 5.2 - 5.7 include different types of functions in the `bugs` module. - Table 5.2 shows Usage, Description, Value, and Restrictions for Scalar functions - Table 5.3 shows Distribution, Density and Quantile for functions to calculate the probability density, probability function, and quantiles of some of the distributions - Table 5.4 shows Description, Range and Inverse for Link functions - Table 5.5 shows Description and Restrictions for Scalar-valued functions with general arguments - Table 5.6 shows Description and Restrictions for Vector- or matrix-valued functions - Table 5.7 shows Functions with aliases and their Compatibility
+
+## 2. What information is in the distributions chapter of the jags user manual? Recite briefly the tables in this chapter.
+
+Table 6.1 - 6.3 introduce the Usage, Density, lower and Upper of Univariate real-valued distributions(Table 6.1) Discrete univariate distributions(Table 6.2), and Multivariate distributions(Table 6.3) in the `bugs` module. Table 6.4 introduces Distributions with aliases in `bugs` module.
+
+## 3. See the WinBUGS examples at <http://www.mrc-bsu.cam.ac.uk/wp-content/uploads/WinBUGS_Vol1.pdf> . (Or: install WinBUGS on your computer! See the Help menu, Examples volume I, roughly 9th example down.) What models (plural) does the Stacks example use? Specify each model. (There are 6 models).
+
+Linear regression on the expectation of $y_i$:
+
+a)  $y_i$ \~ Normal($\mu_i$, $\tau$), normal error model
+
+b)  $y_i$ \~ Double exp($\mu_i$, $\tau$), double exponential error model
+
+c)  $y_i$ \~ t($\mu_i$, $\tau$, d), t distribution with df = 4 (t4 error model)
+
+Ridge regression:
+
+d)  Normal error ridge regression
+
+e)  Double exponential error ridge regression
+
+f)  t4 error ridge regression
+
+## 4. Turn in properly formatted output from your regression model.
+
+```{r}
+x=c(1,2,3,4,5)
+y=c(1,3,3,3,5)
+N=5 
+x.bar=3
+jags.data <- list("x","y","N","x.bar")
+jags.params <- c("alpha", "beta", "tau", "sigma")
+jags.inits <- function(){
+list("alpha"=0, "beta"=1, "tau"=1)
+}
+lab1.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model1.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+```
+
+```{r}
+df <- lab1.sim$BUGSoutput$summary[,c("mean","sd","2.5%","97.5%")]
+colnames(df) <- c("mean","standard deviation", "2.5%","97.5%")
+knitr::kable(df,digits = 2,caption = "Posterior summary of parameters of regression model")
+```
+
+
+```{r}
+temp1= lab1.sim$BUGSoutput$sims.matrix
+head(temp1[,1])
+
+alpha = temp1[,1]
+beta = temp1[,2]
+tau = temp1[,3]
+sigma = temp1[,4]
+```
+
+```{r}
+plot(density(alpha),main="alpha")
+plot(density(beta),main="beta")
+plot(tau, type = "l", main = "tau")
+plot(sigma[1:1000] , type = "l", main = "sigma")
+```
+
+## 5. Change the prior precision for beta to 100, 10, 1, .1, .01, .001. The prior precision is the number 100 in the statement beta \~ dnorm(1,100) in your model program. Run the model for each of these values. What happens to the estimate of beta as the prior precision changes? To answer this,
+
+### a. Report a(n appropriately formatted) table of the posterior means and sds as a function of the prior precision.
+
+```{r}
+x=c(1,2,3,4,5)
+y=c(1,3,3,3,5)
+N=5 
+x.bar=3
+jags.data <- list("x","y","N","x.bar")
+jags.params <- c("alpha", "beta", "tau", "sigma")
+jags.inits <- function(){
+list("alpha"=0, "beta"=1, "tau"=1)
+}
+laba.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-a.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+labb.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-b.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+labc.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-c.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+labd.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-d.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+labe.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-e.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+labf.sim=jags(jags.data, jags.inits, jags.params, 
+              model.file="model-f.txt", 
+              n.chains=3, n.iter=11000, n.burnin=1000)
+```
+
+```{r}
+result1 <- laba.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result2 <- labb.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result3 <- labc.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result4 <- labd.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result5 <- labe.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result6 <- labf.sim$BUGSoutput$summary["beta",c("mean","sd","2.5%","97.5%")]
+result <- cbind(result1,result2,result3,result4,result5,result6)
+colnames(result) <- c("precision = 100", "precision = 10","precision = 1","precision = .1","precision = .01","precision = .001")
+rownames(result) <- c("mean", "standard deviation","2.5%","97.5")
+knitr::kable(result,digits = 2, caption = "posterior means, standard deviations and limits for differnet prior precisions")
+```
+
+### b. As the prior precision goes to +infinity, what do you suppose the limit of the values of the estimate and sd are?
+
+For the six models here, the limit of the values of the estimate increases towards 1 and the sd drops towards 0, as prior precision goes higher. So as the prior precision goes to +infinity, the values of the estimate will go to 1 and sd will go to 0.
+
+### c. The least squares estimate of beta is .8. What is the limit of the estimate as the prior precision goes to zero?
+
+The limit of the estimate would be 0.8 as the prior precision goes to zero in this case.

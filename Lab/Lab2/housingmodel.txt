@@ -1,0 +1,17 @@
+
+model
+{
+   for(i in 1:N) {
+	     y[i] ~ dnorm( mu[i] , tau )
+	     mu[i] <- beta0 + inprod(x[i,] , beta[] )
+		}
+
+	 beta0 ~ dnorm( mbeta0 , precbeta0)
+
+for (j in 1:K) {
+	 beta[j] ~ dnorm( m[j] , prec[j] )
+		}
+	   tau ~ dgamma( tau.a , tau.b )
+	   sigma <- 1 / sqrt( tau )
+	}
+  

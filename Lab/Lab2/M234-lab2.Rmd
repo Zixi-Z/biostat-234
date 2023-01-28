@@ -1,0 +1,335 @@
+---
+title: "M234-lab2"
+author: "Zixi Zhang"
+date: "2023-01-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library('R2jags')
+library(dplyr)
+library(expss)
+library(knitr)
+library(lattice)
+```
+
+```{r}
+# Set working directory
+setwd("/Users/bruce/Documents/23winter/M234/234Lab/Lab2")
+getwd()
+```
+
+
+```{r}
+#READ IN DATA
+housing <- read.table("lab2data.txt")
+#Give the columns useful names 
+colnames(housing) <- c("cost", "eaves", "windows", "yard", "roof")
+housing 
+#SEPARATE X & Y
+y<-housing[,1]
+x<-as.matrix(housing[,2:5])
+reg = lm(y~x)
+summary(reg)
+```
+```{r}
+# #Define the model.
+# sink("housingmodel.txt")
+# cat("
+# model
+# {
+#    for(i in 1:N) {
+# 	     y[i] ~ dnorm( mu[i] , tau )
+# 	     mu[i] <- beta0 + inprod(x[i,] , beta[] )
+# 		}
+# 
+# 	 beta0 ~ dnorm( mbeta0 , precbeta0)
+# 
+# for (j in 1:K) {
+# 	 beta[j] ~ dnorm( m[j] , prec[j] )
+# 		}
+# 	   tau ~ dgamma( tau.a , tau.b )
+# 	   sigma <- 1 / sqrt( tau )
+# 	}
+#   ",fill = TRUE)
+# sink()
+
+#DIFFERENT PRIORS TO TRY
+dataA <- list(
+  N = 21,
+  K = 4,
+  m = c(1.6053, 1.2556, 2.3413, 3.6771),
+  prec = c(.2164, .1105, .2061, .1337),
+  tau.a = 17,
+  tau.b = 1128,
+  mbeta0 = -5.682,
+  precbeta0 = .05464,
+  x = x,
+  y = y
+)
+
+dataB <- list(
+  N = 21,
+  K = 4,
+  m = c(1.6053, 1.2556, 2.3413, 3.6771),
+  prec = c(.02774, .014160, .02642, .01714),
+  tau.a = 2.1795,
+  tau.b = 144.6,
+  mbeta0 = -5.682,
+  precbeta0 = .007005,
+  x = x,
+  y = y
+)
+
+dataC <- list(
+  N = 21,
+  K = 4,
+  m = c(1.6053, 1.2556, 2.3413, 3.6771),
+  prec = c(.005549, .002832, .005284, .003428),
+  tau.a = .4359,
+  tau.b = 28.92,
+  mbeta0 = -5.682,
+  precbeta0 = .00140,
+  x = x,
+  y = y
+)
+```
+
+```{r}
+#SET UP INITAL VALUES
+# This creates a list with 5 copies of the initial values.
+# Change the number 5 to match the n.chains variable in the jags call.
+
+inits <- rep(list(list(
+  beta0 = 0,
+  beta = c(1, 1, 1, 1),
+  tau = 1
+)), 5)
+
+#DEFINE PARAMETERS TO MONITOR
+parameters <- c("beta0", "beta" , "tau")
+```
+
+```{r}
+#RUN THE JAGS PROGRAM, SAVING DATAA TO LAB2.SIMA
+lab2.simA <-
+  jags (
+    dataA,
+    inits,
+    parameters,
+    "housingmodel.txt",
+    n.chains = 5,
+    n.iter = 5100,
+    n.burnin = 100,
+    n.thin = 1,
+    DIC = FALSE
+  )
+#SAVING DATAB TO LAB2.SIMB
+lab2.simB <-
+  jags (
+    dataB,
+    inits,
+    parameters,
+    "housingmodel.txt",
+    n.chains = 5,
+    n.iter = 5100,
+    n.burnin = 100,
+    n.thin = 1,
+    DIC = FALSE
+  )
+#SAVING DATAC TO LAB2.SIMC
+lab2.simC <-
+  jags (
+    dataC,
+    inits,
+    parameters,
+    "housingmodel.txt",
+    n.chains = 5,
+    n.iter = 5100,
+    n.burnin = 100,
+    n.thin = 1,
+    DIC = FALSE
+  )
+```
+## 1.	Summarize briefly the effects on all parameters of changing from prior A to B to C. (Briefly = one sentence total; two only if really necessary). 
+```{r}
+df1 <- lab2.simA$BUGSoutput$summary[, c("mean", "sd")]
+df2 <- lab2.simB$BUGSoutput$summary[, c("mean", "sd")]
+df3 <- lab2.simC$BUGSoutput$summary[, c("mean", "sd")]
+cbind(df1, df2, df3) %>% knitr::kable(
+  col.names = c(
+    "PriorA Mean",
+    "PriorA Std. Deviation",
+    "PriorB Mean",
+    "PriorB Std. Deviation",
+    "PriorC Mean",
+    "PriorC Std. Deviation"
+  ),
+  align = "cccccc",
+  digits = 3,
+  caption = "Effects on parameters from prior A to B to C"
+)
+```
+The means of beta[1], beta[2], beta[3] and tau go higher, while beta[4] and beta() go lower. 
+Actually, the means of beta[1], beta[2], beta[3] go closer to the estimate in classical regression output.
+
+
+### 2.	Give a table of inferences for the coefficient of roofs for the three priors. Briefly explain why it comes out as it does. 
+
+```{r}
+roof.priorA <- lab2.simA$BUGSoutput$summary["beta[4]",c("mean", "sd", "2.5%", "97.5%")]
+roof.priorB <- lab2.simB$BUGSoutput$summary["beta[4]",c("mean", "sd", "2.5%", "97.5%")]
+roof.priorC <- lab2.simC$BUGSoutput$summary["beta[4]",c("mean", "sd", "2.5%", "97.5%")]
+rbind(roof.priorA,roof.priorB, roof.priorC) %>% knitr::kable(
+  col.names = c("mean", "std. deviation","2.5%", "97.5%"),
+  caption = "Coefficient of roofs for the three priors",
+  align = "cc",
+  digits = 3
+)
+```
+In the classical regression model, estimate of roof is NA, so the mean goes closer to 0 from piror A to C.
+
+## 3.	For one of the three priors: 
+### a.	Show summaries of the futurefit, futureobs, futuretail in a properly formatted table for the house in perfect condition. 
+
+```{r}
+# #Define the new model.
+# #covariates eaves=windows=1, yard=roof=2 for perfect
+# sink("futuremodel1.txt")
+# cat(
+#   "
+# model
+# {
+#    for(i in 1:N) {
+# 	     y[i] ~ dnorm( mu[i] , tau )
+# 	     mu[i] <- beta0 + inprod(x[i,] , beta[] )
+# 		}
+# 
+# 	 beta0 ~ dnorm( mbeta0 , precbeta0)
+# 
+# for (j in 1:K) {
+# 	 beta[j] ~ dnorm( m[j] , prec[j] )
+# 		}
+# 	   tau ~ dgamma( tau.a , tau.b )
+# 	   sigma <- 1 / sqrt( tau )
+# 	   futurefit <- beta0 + beta[1] + beta[2] + beta[3]*2 + beta[4]*2
+# 	   futureobs ~ dnorm(futurefit, tau)
+# 	   futuretail <- beta0 + beta[1] + beta[2] + beta[3]*2 + beta[4]*2 + 1.645*sigma
+# 	}
+#   ", fill = TRUE)
+# sink()
+
+#include the three variables in our output parameters
+inits<-rep(list(list(beta0=0, beta=c(1,1,1,1),tau=1, futureobs=10)),5)
+parameters <- c("beta0", "beta" , "tau", "sigma", "futurefit", "futureobs", "futuretail")
+#RUN THE JAGS PROGRAM, SAVING DATAA TO LAB2.NEWSIMA
+lab2.newsimA <-
+  jags (
+    dataA,
+    inits,
+    parameters,
+    "futuremodel1.txt",
+    n.chains = 5,
+    n.iter = 5100,
+    n.burnin = 100,
+    n.thin = 1,
+    DIC = FALSE
+  )
+lab2.newsimA$BUGSoutput$summary[c("futurefit","futureobs","futuretail"),c("mean", "sd", "2.5%", "97.5%")] %>%
+  knitr::kable(
+  col.names = c("mean", "std. deviation","2.5%", "97.5%"),
+  caption = "Summary of the futurefit, futureobs, futuretail",
+  align = "cccc",
+  digits = 3
+)
+  
+```
+
+
+
+### b.	Which house is in the worst condition? Calculate the three futurefit, futureobs and futuretail variables for this house and provide a formatted table. 
+```{r}
+which.max(y)
+x[14,]
+```
+
+House 14 is the worst house.
+
+```{r}
+# #Define the new model.
+# #covariates eaves=3 windows=3.33, yard=2 roof=4 for worst
+# sink("futuremodel2.txt")
+# cat(
+#   "
+# model
+# {
+#    for(i in 1:N) {
+# 	     y[i] ~ dnorm( mu[i] , tau )
+# 	     mu[i] <- beta0 + inprod(x[i,] , beta[] )
+# 		}
+# 
+# 	 beta0 ~ dnorm( mbeta0 , precbeta0)
+# 
+# for (j in 1:K) {
+# 	 beta[j] ~ dnorm( m[j] , prec[j] )
+# 		}
+# 	   tau ~ dgamma( tau.a , tau.b )
+# 	   sigma <- 1 / sqrt( tau )
+# 	   futurefit <- beta0 + beta[1]*3 + beta[2]*3.33 + beta[3]*2 + beta[4]*4
+# 	   futureobs ~ dnorm(futurefit, tau)
+# 	   futuretail <- beta0 + beta[1]*3 + beta[2]*3.33 + beta[3]*2 + beta[4]*4 + 1.645*sigma
+# 	}
+#   ", fill = TRUE)
+# sink()
+
+lab2.worstsimA <-
+  jags (
+    dataA,
+    inits,
+    parameters,
+    "futuremodel2.txt",
+    n.chains = 5,
+    n.iter = 5100,
+    n.burnin = 100,
+    n.thin = 1,
+    DIC = FALSE
+  )
+lab2.worstsimA$BUGSoutput$summary[c("futurefit","futureobs","futuretail"),c("mean", "sd", "2.5%", "97.5%")] %>%
+  knitr::kable(
+  col.names = c("mean", "std. deviation","2.5%", "97.5%"),
+  caption = "Summary of the futurefit, futureobs, futuretail",
+  align = "cccc",
+  digits = 3
+)
+```
+
+## 4.	For prior (C), what two coefficients (including the intercept) have the highest posterior correlation? Briefly explain why. 
+
+```{r}
+temp=lab2.simC$BUGSoutput$sims.matrix
+splom(temp[1:5000,1:5],pch=".")
+```
+
+beta[0] and beta[0] have the highest posterior correlation. Because all the roofs
+in the dataset are 2, so they will be treated as a constant value. 
+
+## 5.	Briefly interpret the three variables futurefit, futureobs, futuretail in your own words. 
+
+* `Futurefit`: the mean of the distribution and is used to estimate the cost.
+* `futureobs`: a random sample from the distribution of cost estimate distribution with mean Futurefit and precision $\tau$.
+* `futuretail`: the upper limit of interval of the mean of distribution.
+
+## 6.	Suppose we pool the two data sets after the inflation correction. Also, the expert at the housing department told you he thought each unit increase in any rating scale ought to increase the cost by around $1000. You’re not sure that all coefficients should be positive. Suggest priors (all regression coefficients and for sigma^2) to use now. Write one or two sentences justifying your priors. 
+
+* Intercept: $\beta_0$ ~ No(-5.682, .05464)
+* EAVES: $\beta_1$ ~ No(1, 0.01)
+* WINDOWS: $\beta_2$ ~ No(1, 0.01)
+* YARDS: $\beta_3$ ~ No(1, 0.01)
+* ROOF: $\beta_4$ ~ No(1, 0.01)
+* Tau: $\tau$ ~ Gamma(17, 1128)
+
+For $\beta_0$ and $\tau$, I just leave them as the same in Prior A. For $\beta_1 \sim \beta_4$, I set mean as 1 so that each unit increase in any rating scale ought to increase the cost by around $1000. I also set precision to be 0.01 as we ashould allow some coefficients to be negative.
