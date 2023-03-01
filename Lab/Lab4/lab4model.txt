@@ -1,0 +1,27 @@
+
+model
+        {               
+                for( i in 1 : 64 ) {
+                        for( j in 1 : 4 ) {
+                            s[i, j]<-4*(i-1)+j
+                            y[i, j] ~ dnorm(mu[i , j],tau.e)
+                                mu[i , j] <- inprod(x[s[i,j],],alpha[])+beta[i]
+                        }
+                        beta[i]~dnorm(0, tau.b)
+                }
+
+for( k in 1:8) {
+                alpha[k]~dnorm(m[k],varinv[k])
+                alphasign[k] <- step(alpha[k])
+}
+
+                tau.e ~ dgamma(ea,eb)
+                tau.b~dgamma(ba,bb)
+
+                sigma <- 1 /sqrt( tau.e)
+                sqrtD <- 1 /sqrt( tau.b)
+                rho <- sqrtD*sqrtD/(sigma*sigma + sqrtD *sqrtD)
+
+        }
+
+    

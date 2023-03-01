@@ -1,0 +1,229 @@
+---
+title: "M234-lab4"
+author: "Zixi Zhang"
+date: "2023-02-10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("/Users/bruce/Documents/Biostat.courses/23W-M234/234Lab/Lab3/AddBurnin.RData")
+#CHANGE WORKING DIRECTORY
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Lab/Lab4")
+getwd()
+
+#LOAD NECESSARY PACKAGES
+library(R2jags)
+library(lattice)
+library(knitr)
+```
+
+```{r}
+# useful function
+mysummary = function(invector) {
+c(mean(invector), sd(invector), quantile(invector, .025), 
+	quantile(invector,.975),
+	length(invector[invector>0])/length(invector))
+}
+# load the data.  
+load("lab4_data.RData")
+
+# #Create the model
+# 
+# sink("lab4model.txt")
+# cat("
+# model
+#         {               
+#                 for( i in 1 : 64 ) {
+#                         for( j in 1 : 4 ) {
+#                             s[i, j]<-4*(i-1)+j
+#                             y[i, j] ~ dnorm(mu[i , j],tau.e)
+#                                 mu[i , j] <- inprod(x[s[i,j],],alpha[])+beta[i]
+#                         }
+#                         beta[i]~dnorm(0, tau.b)
+#                 }
+# 
+# for( k in 1:8) {
+#                 alpha[k]~dnorm(m[k],varinv[k])
+#                 alphasign[k] <- step(alpha[k])
+# }
+# 
+#                 tau.e ~ dgamma(ea,eb)
+#                 tau.b~dgamma(ba,bb)
+# 
+#                 sigma <- 1 /sqrt( tau.e)
+#                 sqrtD <- 1 /sqrt( tau.b)
+#                 rho <- sqrtD*sqrtD/(sigma*sigma + sqrtD *sqrtD)
+# 
+#         }
+# 
+#     ",fill = TRUE)
+# sink()
+# 
+# #Create the t model
+# 
+# sink("lab4tmodel.txt")
+# cat("
+# model
+#         {               
+#                 for( i in 1 : 64 ) {
+#                         for( j in 1 : 4 ) {
+#                             s[i, j]<-4*(i-1)+j
+#                             y[i, j] ~ dt(mu[i , j],tau.e,df1)
+#                                 mu[i , j] <- inprod(x[s[i,j],],alpha[])+beta[i]
+#                         }
+#                         beta[i]~dt(0, tau.b,df2)
+#                 }
+# 
+# for( k in 1:8) {
+#                 alpha[k]~dnorm(m[k],varinv[k])
+#                 alphasign[k] <- step(alpha[k])
+# }
+#                 df1 <- 1/invdf1
+#                 invdf1 ~ dunif(0,.5)
+#                 df2 <- 1/invdf1
+#                 invdf2 ~ dunif(0,.5)
+#                 tau.e ~ dgamma(ea,eb)
+#                 tau.b~dgamma(ba,bb)
+# 
+#                 sigma <- 1 /sqrt( tau.e)
+#                 sqrtD <- 1 /sqrt( tau.b)
+#                 rho <- sqrtD*sqrtD/(sigma*sigma + sqrtD *sqrtD)
+# 
+#         }
+# 
+#     ",fill = TRUE)
+# sink()
+
+```
+
+
+```{r}
+run1 = jags(priordata, inits, parameters, "lab4model.txt", 
+            n.chains=5, n.iter=1100, n.burnin=0, n.thin=1)
+Output1 = AddBurnin(run1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+parameters = c("alpha", "alphasign", "tau.e", "tau.b", "sigma", "sqrtD", "rho", "beta[1:5]", "y[4,3:4]", "df1", "df2") 
+run2 = jags(priordata, inits, parameters, "lab4tmodel.txt",  n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+Output2 = AddBurnin(run2$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+```
+
+## 1.	Turn in results from the t-model.  Be sure to run sufficient iterations.  
+### a.	How is the convergence?  Show an illustrative autocorrelation function and time-series plot for two parameters of interest. 
+
+```{r}
+temp2 <-  Output2$Burnin.sims.array
+
+par(mfrow = c(1,2))
+acf(temp2[,1,3], main="") 
+title("Autocorrelation plot for alpha[3]")
+plot(1:1000,temp2[1:1000,1,"alpha[3]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,2,"alpha[3]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,3,"alpha[3]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,4,"alpha[3]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,5,"alpha[3]"], type="l", xlab="iteration", ylab="")  
+title("Time series plot for alpha[3]")
+
+par(mfrow = c(1,2))
+acf(temp2[,1,8], main="") 
+title("Autocorrelation plot for alpha[8]")
+plot(1:1000,temp2[1:1000,1,"alpha[8]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,2,"alpha[8]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,3,"alpha[8]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,4,"alpha[8]"], type="l", xlab="iteration", ylab="")  
+lines(1:1000,temp2[1:1000,5,"alpha[8]"], type="l", xlab="iteration", ylab="")  
+title("Time series plot for alpha[3]")
+```
+The convergence is good.
+
+### b.	Turn in a table of results for the fixed effects, the two standard deviations sqrtD and , and the two degrees of freedom parameters.  Label rows appropriately and format the table carefully.  
+
+```{r q1b, echo = F}
+temp = Output1$Burnin.Summary
+temp2 = Output2$Burnin.Summary
+rows = c(paste0("alpha[", 1:8, "]"), "sigma", "sqrtD", "df1", "df2")
+table = temp2[rows, ]
+row.names(table) = c("intercept","difference between distractors minus attenders at baseline","attend treatment effect on attenders", "attend treatment effect on distracters", "attend treatment effect on none", "distract treatment effect on attenders ", "distract treatment effect on distracters ", "distract treatment effect on none","sigma","sqrtD","df1","df2" )
+kable(table,
+      col.names = c("mean", "std deviation","2.5%", "97.5%", "P>0"),
+      align = "ccccc",
+      digits = 3,
+      caption = "table of results for the fixed effects")
+```
+
+##2.	Compare the results from the normal model to the results from the t model:  What changes are there?  In particular, what scientific conclusions change?  
+```{r}
+table2 = temp[c(paste0("alpha[", 1:8, "]"), "sigma", "sqrtD"), ]
+row.names(table2) = c("intercept","difference between distractors minus attenders at baseline","attend treatment effect on attenders", "attend treatment effect on distracters", "attend treatment effect on none", "distract treatment effect on attenders ", "distract treatment effect on distracters ", "distract treatment effect on none","sigma","sqrtD" )
+kable(table2,
+      col.names = c("mean", "std deviation","2.5%", "97.5%", "P>0"),
+      align = "ccccc",
+      digits = 3,
+      caption = "table of results from the normal model")
+```
+
+* According to the result, mean of alpha[7] changes from Normal: 0.39 to t: 0.211. It means benefit of teaching distractors  may be less than the normal model. 
+
+## 3.	Reproduce figures 1-5 (see below for the normal model figures) for your t model. Label your figures appropriately. 
+
+```{r}
+plotdf <-  Output2$Burnin.sims.matrix 
+par(mfrow = c(1,1))
+plot(density((plotdf[,"y[4,3]"])), xlim = c(0, 6), ylim = c(0, 2), lwd = 1.5, xlab = "ln(time) (seconds)", main = "")
+lines(density((plotdf[,"y[4,4]"])), col = 2, lwd = 1.5, lty = 2)
+legend("topright", col = c(1,2), legend = c('y[4,3]','y[4,4]'), bty = 'n', lty = c(1,2))
+title("Plot 1. Predictions for subject 4 ")
+
+```
+```{r}
+plot(density(exp(plotdf[,c("alpha[1]")] + plotdf[,c("alpha[2]")])), ylim = c(0, .4), main = "Baseline pain threshold")
+lines(density(exp(plotdf[,c("alpha[1]")])), col = "red", lty = 2)
+legend("topright", col = c(1,2), legend = c('Distractor','Attender'), bty = 'n', lty = c(1,2), lwd = 2)
+title("Figure 2. Baseline predicted median pain tolerance ")
+```
+
+```{r}
+par(mfrow = c(1,2), oma = c(0,0,4,0), mar = c(5,3,1,0))
+plot(density((plotdf[, "alpha[3]"])), main = "Effects on attenders", lty = 1)
+lines(density((plotdf[,"alpha[4]"])), col = 2, lty = 2)
+lines(density((plotdf[,"alpha[5]"])), col = 3, lty = 4)
+legend("topright", col = c(1, 2, 3), legend = c("Attend", "Distract", "Null"), lty = c(1,2,4), bty = "n", cex = 0.8)
+plot(density((plotdf[, "alpha[6]"])), main = "Effects on distracters", lty = 1, xlim = c(-1, 1.5))
+lines(density((plotdf[,"alpha[7]"])), col = 2, lty = 2)
+lines(density((plotdf[,"alpha[8]"])), col = 3, lty = 4)
+legend("topright", col = c(1, 2, 3), legend = c("Attend", "Distract", "Null"), lty = c(1,2,4), bty = "n", cex = 0.8)
+title("Plot 3. Treatment effect (exponential scale) ", outer = T)
+```
+```{r}
+par(mfrow = c(1,2), oma = c(0,0,4,0), mar = c(5,3,1,0))
+plot(density(exp(plotdf[, "alpha[3]"])), main = "Effects on attenders", ylim = c(0, 4),lty = 1)
+lines(density(exp(plotdf[,"alpha[4]"])), col = 2, lty = 2)
+lines(density(exp(plotdf[,"alpha[5]"])), col = 3, lty = 4)
+legend("topright", col = c(1, 2, 3), legend = c("Attend", "Distract", "Null"), lty = c(1,2,4), bty = "n", cex = 0.8)
+plot(density(exp(plotdf[, "alpha[6]"])), main = "Effects on distracters", lty = 1, xlim = c(0, 3))
+lines(density(exp(plotdf[,"alpha[7]"])), col = 2, lty = 2)
+lines(density(exp(plotdf[,"alpha[8]"])), col = 3, lty = 4)
+legend("topright", col = c(1, 2, 3), legend = c("Attend", "Distract", "Null"), lty = c(1,2,4), bty = "n", cex = 0.8)
+title("Plot 4. Treatment effect (multiplicative scale) ", outer = T)
+```
+```{r}
+par(mfrow = c(1,2), oma = c(0,0,4,0), mar = c(5,3,1,0))
+plot(density((plotdf[, "alpha[4]"]-plotdf[,"alpha[3]"])), main = "Differences for attenders", xlab = "seconds", ylim = c(0, 3), lty = 1)
+lines(density((plotdf[,"alpha[4]"]-plotdf[,"alpha[5]"])), col = 2, lty = 2)
+lines(density((plotdf[,"alpha[3]"]-plotdf[,"alpha[5]"])), col = 3, lty = 4)
+legend("topleft", col = c(1, 2, 3), legend = c("D-A", "D-N", "A-N"), lty = c(1,2,4), bty = "n", cex = 0.8)
+plot(density((plotdf[, "alpha[7]"]-plotdf[,"alpha[6]"])), main = "Differences for attenders", xlab = "seconds", ylim = c(0, 3), xlim = c(-1.5, 1.75), lty = 1)
+lines(density((plotdf[,"alpha[7]"]-plotdf[,"alpha[8]"])), col = 2, lty = 2)
+lines(density((plotdf[,"alpha[6]"]-plotdf[,"alpha[8]"])), col = 3, lty = 4)
+legend("topleft", col = c(1, 2, 3), legend = c("D-A", "D-N", "A-N"), lty = c(1,2,4), bty = "n", cex = 0.8)
+title("Plot 5. Pairwise differences between treatments" ,outer = T)
+```
+
+## 4.	Invent another prior for the df, and in one sentence explain its properties (ie support, mean, sd or other characteristics) and why it is better than the above prior. 
+We suggest the prior $Gamma(\frac{63^2}{230}, \frac{63}{230})$. This prior has a mean of 63 (which is df = n-1 for the dataset), and a standard deviation of 230. This may be a better prior because it makes the mean closer to sample size and allows for a very wide range of dfs.
+
+
+
+

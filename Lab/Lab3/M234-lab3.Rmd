@@ -1,0 +1,367 @@
+---
+title: "M234-lab3"
+author: "Zixi Zhang"
+date: "2023-02-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Set working directory
+setwd("/Users/bruce/Documents/23winter/M234/234Lab/Lab3")
+getwd()
+```
+
+
+```{r}
+#LOAD NECESSARY PACKAGES
+library(R2jags)
+library(lattice)
+library(ggplot2)
+library(latex2exp)
+#Function to help with the burn in 
+load("AddBurnin.RData")
+```
+
+```{r}
+# useful function
+mysummary = function(invector) {
+c(mean(invector), sd(invector), quantile(invector, .025), 
+	quantile(invector,.975),
+	length(invector[invector>0])/length(invector))
+}
+#load in the data 
+TraumaData = read.table("bcj97data.txt")
+#Give the columns useful names 
+colnames(TraumaData) <- c("death", "n",	"intercept",	"iss",	"rts", "age", "ti", "age*ti")
+#first 6 observations from proto-typical cases 
+head(TraumaData, n=6)
+```
+
+
+```{r}
+#For the 6 proto-typical cases define Xp the design matrix, Yp the outcomes (death=1), and np the number of trials
+Xp = as.matrix(TraumaData[1:6,3:8])
+Yp = TraumaData[1:6,1]
+np = TraumaData[1:6,2]
+#note a=Yp+1 and b=np-a+2 in the corresponding beta distributions 
+#define the inverse of the Xp matrix to be used to convert the prior distributions on pi to distributions on the regression coefficients
+invXp = solve(Xp)
+#For the observed data define the design matrix, outcomes, and number of trials
+Xobs = as.matrix(TraumaData[7:306,3:8])
+Yobs = TraumaData[7:306,1]
+nobs = TraumaData[7:306,2]
+```
+
+To see how prior distributions on the betas we define a simple model which maps the distributions on pi to distributions
+
+```{r}
+# #Store the model in the file LAB3.Priors.txt
+# 
+# sink("LAB3.Priors.txt")
+# cat("
+# model{
+# 	
+# 	betas<-invXp %*% logitp[]
+# 
+# 	for(j in 1:6){
+# 		logitp[j]<-logit(pie[j])
+# 	}
+# 	pie[1]~dbeta(1.1,8.5)
+# 	pie[2]~dbeta(3.0,11.0)
+# 	pie[3]~dbeta(5.9,1.7)
+# 	pie[4]~dbeta(1.3,12.9)
+# 	pie[5]~dbeta(1.1,4.9)
+# 	pie[6]~dbeta(1.5,5.5)
+# 
+# }
+# 
+#   ",fill = TRUE)
+# sink()
+#In the code we write p (or pie) for pi since pi already has a meaning in R
+
+todo1.data=list(invXp=invXp)
+todo1.inits=rep(list(list(pie=c(0.5,0.5,0.5,0.5,0.5,0.5))),5)
+todo1.parameters = c("betas", "pie[1:6]")
+
+#Run the JAGS model
+todo1.out = jags(todo1.data, todo1.inits, todo1.parameters, "LAB3.Priors.txt", 
+	n.chains=5, n.iter=51000, n.burnin=0, n.thin=2, DIC=F)
+names(todo1.out) #components of ex1.out
+#Treat the first 1000 iterations as a burn in	
+Output1 = AddBurnin(todo1.out$BUGSoutput$sims.array,burnin=1000,n.thin=2)
+print(Output1$Burnin.Summary)
+```
+
+
+
+```{r}
+# #Now we incorporate the data into the model
+# 
+# sink("Lab3.Posteriors.txt")
+# cat("
+# model{
+# 	
+# 	betas<-invXp %*% logitp[]
+# 
+# 	for(j in 1:6){
+# 		logitp[j]<-logit(pie[j])
+# 	}
+# 	pie[1]~dbeta(1.1,8.5)
+# 	pie[2]~dbeta(3.0,11.0)
+# 	pie[3]~dbeta(5.9,1.7)
+# 	pie[4]~dbeta(1.3,12.9)
+# 	pie[5]~dbeta(1.1,4.9)
+# 	pie[6]~dbeta(1.5,5.5)
+# 
+# 	
+# 		for(i in 1:T){
+# 		y[i] ~ dbern(p[i])
+# 		p[i]<-ilogit(inprod(x[i,],betas[]))
+# 		}
+# 			
+# 	
+# }
+#   ",fill = TRUE)
+# sink()
+
+
+#partial data (T=100)
+todo2.data = list(x=Xobs, y=Yobs, T=100, invXp=invXp)
+todo2.inits = rep(list(list(pie=c(0.5,0.5,0.5,0.5,0.5,0.5))),5)
+todo2.parameters = c("betas", "pie[1:6]")
+todo2.out = jags(todo2.data, todo2.inits, todo2.parameters, "Lab3.Posteriors.txt", 
+	n.chains=5, n.iter=51000, n.burnin=0, n.thin=2, DIC=F)
+#Treat the first 1000 iterations as a burn in	
+Output2 = AddBurnin(todo2.out$BUGSoutput$sims.array,burnin=1000,n.thin=2)
+
+# full data (T=300)
+todo3.data = list(x=Xobs, y=Yobs, T=300, invXp=invXp)
+todo3.inits = rep(list(list(pie=c(0.5,0.5,0.5,0.5,0.5,0.5))),5)
+todo3.parameters = c("betas", "pie[1:6]")
+todo3.out = jags(todo3.data, todo3.inits, todo3.parameters, "Lab3.Posteriors.txt", 
+	n.chains=5, n.iter=51000, n.burnin=0, n.thin=2, DIC=F)
+#Treat the first 1000 iterations as a burn in	
+Output3 = AddBurnin(todo3.out$BUGSoutput$sims.array,burnin=1000,n.thin=2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 1.	At what lags do the autocorrelations hit zero for the 6 regression coefficients? Are the beta autocorrelations better or worse than the 6 pi’s? 
+```{r}
+par(mfrow = c(2,3),oma = c(0,0,2,0))
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,1], main="beta1", lag.max = 300)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,2], main="beta2", lag.max = 300)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,3], main="beta3", lag.max = 300)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,4], main="beta4", lag.max = 300)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,5], main="beta5", lag.max = 300)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,6], main="beta6", lag.max = 300)
+title(outer = T, TeX(r'(Autocorrelation Plots for $\beta$s)'))
+```
+
+Autocorrelation of $\beta_1$ hits 0 at Lag $\approx 80$  
+Autocorrelation of $\beta_2$ hits 0 at Lag $\approx 90$  
+Autocorrelation of $\beta_3$ hits 0 at Lag $\approx 70$  
+Autocorrelation of $\beta_4$ hits 0 at Lag $\approx 150$  
+Autocorrelation of $\beta_5$ hits 0 at Lag $\approx 100$  
+Autocorrelation of $\beta_6$ hits 0 at Lag $\approx 220$  
+
+```{r}
+par(mfrow=c(2,3), oma = c(0,0,2,0))
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,7], main="Pi1", lag.max = 400)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,8], main="Pi2", lag.max = 400)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,9], main="Pi3", lag.max = 400)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,10], main="Pi4", lag.max = 400)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,11], main="Pi5", lag.max = 400)
+acf(todo3.out$BUGSoutput$sims.array[1:5000,1,12], main="Pi6", lag.max = 400)
+title(outer = T,  TeX(r'(Autocorrelation Plots for $\pi$s)'))
+```
+
+Autocorrelation of $\pi_1$ hits 0 at Lag $\approx 70$  
+Autocorrelation of $\pi_2$ hits 0 at Lag $\approx 100$  
+Autocorrelation of $\pi_3$ hits 0 at Lag $\approx 400$  
+Autocorrelation of $\pi_4$ hits 0 at Lag $\approx 100$  
+Autocorrelation of $\pi_5$ hits 0 at Lag $\approx 90$  
+Autocorrelation of $\pi_6$ hits 0 at Lag $\approx 400$ 
+ 
+The beta autocorrelations are better or than the 6 pi’s.
+
+### 2.	Turn in your properly formatted table of output for the full data set, and turn in a set of the 6 plots of the prior and posterior for the betas. 
+
+```{r}
+names <- paste0("betas[", 1:6, "]")
+Parameter <- c("Intercept", "ISS", "RTS", "Age", "ti", "Age*ti")
+table1 <-  cbind(Parameter,round( Output2$Burnin.Summary[names, ],3))
+knitr::kable(table1, 
+             caption = "Posterior of Betas from Full Dataset Run",
+             col.names =  c("Parameter", "Mean", "Std. Deviation", "2.5%", "97.5%", "P > 0"),
+             align = "cccccc")
+```
+
+
+```{r}
+par(mfrow = c(2,3), oma = c(0,0,2,0))
+plot(density(Output3$Burnin.sims.matrix[,1]), xlab = TeX(r'($\beta_1$)'), main = "")
+lines(density(Output1$Burnin.sims.matrix[,1]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,2]), xlab = TeX(r'($\beta_2$)'), main = " ")
+lines(density(Output1$Burnin.sims.matrix[,2]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,3]), xlab = TeX(r'($\beta_3$)'), main = "")
+lines(density(Output1$Burnin.sims.matrix[,3]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,4]), xlab = TeX(r'($\beta_4$)'), main = "")
+lines(density(Output1$Burnin.sims.matrix[,4]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,5]), xlab = TeX(r'($\beta_5$)'), main = "")
+lines(density(Output1$Burnin.sims.matrix[,5]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,6]), xlab = TeX(r'($\beta_6$)'), main = "")
+lines(density(Output1$Burnin.sims.matrix[,6]), col = "blue", lty = 2)
+par(xpd = T)
+title("A set of the 6 plots of the prior and posterior for the betas", outer = T)
+```
+### 3.	Turn in the results of the TODO step 2 properly formatted and your figures nicely annotated. 
+(2)	Compare output for 3 different runs: (i) prior (no data), (ii) partial data (T=100) posterior and then (iii) with the full data (T=300). 
+a.	Compare all estimates and standard deviations in a table. [Given that you have three runs to compare, you’ll not want to have as many summaries of the posteriors as if you were doing a table of a single model. Think about how to best arrange the numbers in the table.]
+
+```{r}
+names <- paste0("betas[", 1:6, "]")
+col <- c('mu.vect', 'sd.vect')
+prior <-  round(Output1$Burnin.Summary[names, col], 4)
+p.post <- round(Output2$Burnin.Summary[names, col], 4)
+f.post <- round(Output3$Burnin.Summary[names, col], 4)
+table2 <- rbind(prior, p.post, f.post)
+rownames(table2) <- c()
+parameter <- rep(c("Beta 1", "Beta 2", "Beta 3", "Beta 4", "Beta 5", "Beta 6"), 3)
+table2 <- cbind(parameter, table2)
+rownames(table2) = c("Prior", " ", " ", " ", " ", " ", "Partial Posterior", " ", " ", "", " ", " ", "Full Posterior", " ", " ", "", " ", " ")
+knitr::kable(table2, caption = "Parameter estimates from Prior, Partial Data, and Full Data models")
+```
+```{r}
+names <- paste0("betas[", 1:6, "]")
+Parameter <- c("Intercept", "ISS", "RTS", "Age", "ti", "Age*ti")
+dfprior <-  cbind(Parameter,round( Output1$Burnin.Summary[names, c('mu.vect', 'sd.vect')],3))
+rownames(dfprior) = c("prior","","","","","")
+dfpartial <- cbind(Parameter,round( Output2$Burnin.Summary[names, c('mu.vect', 'sd.vect')],3))
+rownames(dfpartial) = c("partial data posterior","","","","","")
+dffull <- cbind(Parameter,round( Output3$Burnin.Summary[names, c('mu.vect', 'sd.vect')],3))
+rownames(dffull) = c("full data posterior","","","","","")
+table2= rbind(dfprior,dfpartial,dffull) 
+knitr::kable(table2,
+             digits = 3,
+            caption = "Comparsion of all estimates and standard deviations",
+            col.names = c("Parameter", "Mean", "Std. Deviation"),
+              align = "cccc")
+```
+
+b.	Draw plots with three densities for each coefficient. The plot should show the prior density, the partial data posterior and full data posteriors. Label appropriately. 
+```{r}
+par(mfrow = c(2,3), oma = c(0,0,4,0))
+
+plot(density(Output3$Burnin.sims.matrix[,1]), xlab = TeX(r'($\beta_1$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,1]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,1]), xlim = c(-4, 4), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,2]), xlab = TeX(r'($\beta_2$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,2]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,2]), col = "blue", lty = 2,)
+
+plot(density(Output3$Burnin.sims.matrix[,3]), xlab = TeX(r'($\beta_3$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,3]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,3]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,4]), xlab = TeX(r'($\beta_4$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,4]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,4]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,5]), xlab = TeX(r'($\beta_5$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,5]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,5]), col = "blue", lty = 2)
+
+plot(density(Output3$Burnin.sims.matrix[,6]), xlab = TeX(r'($\beta_6$)'), main = "")
+lines(density(Output2$Burnin.sims.matrix[,6]), col = "red", lty = 3, lwd = 2)
+lines(density(Output1$Burnin.sims.matrix[,6]), col = "blue", lty = 2)
+par(xpd = T)
+title("Densities for Prior and Posteriors with Partial Data and Full data", outer = T)
+```
+
+
+### 4.	Turn in your answer to TODO step 4. 	The model tracks the parameters $pi_1$ to $pi_6$ , what is the interpretation of these parameters once the data has been incorporated?
+$\pi_1$ to $\pi_6$ are used to estimate the posterior probability that 6 patients will die.
+
+
+
+
+
+### 5 (3)	Extra credit 1: add code to calculate the probability that someone with Xs of 
+1	2	7.55	25	0	0
+1	11	7.8408	42	1	42
+1	16	7.8408	80	1	80
+
+```{r}
+# sink("Lab3.PosteriorsExtra.txt")
+# cat("
+# model{
+# 
+# 	betas<-invXp %*% logitp[]
+# 
+# 	for(j in 1:6){
+# 		logitp[j]<-logit(pie[j])
+# 	}
+# 	pie[1]~dbeta(1.1,8.5)
+# 	pie[2]~dbeta(3.0,11.0)
+# 	pie[3]~dbeta(5.9,1.7)
+# 	pie[4]~dbeta(1.3,12.9)
+# 	pie[5]~dbeta(1.1,4.9)
+# 	pie[6]~dbeta(1.5,5.5)
+# 
+# 
+# 		for(i in 1:T){
+# 		y[i] ~ dbern(p[i])
+# 		p[i]<-ilogit(inprod(x[i,],betas[]))
+# 		}
+# 		for (j in 1:3){
+# 		extra[j] <- ilogit(inprod(extraX[j,],betas[]))
+# 		}
+# 
+# 
+# }
+#   ",fill = TRUE)
+# sink()
+
+extraX1 <- c(1,2,7.55,25,0,0)
+extraX2 <- c(1,11,7.8408,42,1,42)
+extraX3 <- c(1,16,7.8408,80,1,80)
+extraX <- rbind(extraX1, extraX2, extraX3)
+colnames(extraX) = colnames(Xobs)
+extraX
+extra.data = list(x=Xobs, y=Yobs, T=300, invXp=invXp, extraX = extraX)
+extra.inits = rep(list(list(pie=c(0.5,0.5,0.5,0.5,0.5,0.5))),5)
+extra.parameters = c("betas", "pie[1:6]", "extra[1:3]")
+extra.out = jags(extra.data, extra.inits, extra.parameters, "Lab3.PosteriorsExtra.txt", n.chains=5, n.iter=51000, n.burnin=0, n.thin=2, DIC=F)
+Output.extra = AddBurnin(extra.out$BUGSoutput$sims.array,burnin=1000,n.thin=2)
+table3 <- Output.extra$Burnin.Summary[c("extra[1]","extra[2]","extra[3]"),]
+row.names(table3) = c("patient1","patient2","patient3")
+knitr::kable(table3,
+             digits = 3,
+             caption = "Prediction summary",
+             align = "ccccc",
+             col.names = c("mean","std. deviation","2.5%","97.5%","P > 0"))
+```

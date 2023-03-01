@@ -1,0 +1,227 @@
+---
+title: "M234-lab6"
+author: "Zixi Zhang"
+date: "2023-02-24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Lab/Lab6")
+library(R2jags)
+load("AddBurnin.RData")
+load("lab5data.RData")
+library(lattice)
+library(ggplot2)
+```
+
+
+## 1.	Print model 1 and on the printout, identify the following:
+
+```{r}
+# sink("model1.txt")
+# cat("
+# # Response is number of Exencephaly malformations 
+# # out of the total number of live fetuses
+# # in the litter.  
+# # Model #1.  
+# model
+# {
+#         for (i in 1:N)
+#         { 
+#                 y[i] ~ dbin(p[i], n[i])
+#                 logit(p[i]) <-  alpha[1] +alpha[2]*(z[i]-695) + beta[i] + 
+#                                 x1[i]*alpha[3] +x2[i]*alpha[4]
+#                 beta[i] ~ dnorm(0, tau)
+#         }
+        # for (j in 1:4)
+        # {
+        #         alpha[j] ~dnorm(0, 0.001)
+        # }
+        # sigsq ~ dunif(0,6)
+        # tau <- 1/sigsq
+        # sigma <- sqrt(sigsq)
+# 	for(j in 1:npred)
+# 		{
+# 			lppred[j] <- alpha[1] + alpha[2]*(pred[j]-695) + betanew
+# 			logit(probpred[j]) <- lppred[j]
+# 		}
+# 		betanew ~ dnorm(0,tau)
+# }
+#     ",fill = TRUE)
+# sink()
+
+```
+
+### a.	Where the likelihood is modeled;
+
+logit(p[i]) <-  alpha[1] +alpha[2]*(z[i]-695) + beta[i] +  x1[i]*alpha[3] +x2[i]*alpha[4]
+
+### b.	Where the priors are modeled;
+
+for (j in 1:4)
+{
+    alpha[j] ~dnorm(0, 0.001)
+}
+sigsq ~ dunif(0,6)
+tau <- 1/sigsq
+sigma <- sqrt(sigsq)
+
+### c.	Where the linear predictor is specified;
+
+lppred[j] <- alpha[1] + alpha[2]*(pred[j]-695) + betanew
+
+### d.	Where the predictions are modeled;
+
+	for(j in 1:npred)
+		{
+			lppred[j] <- alpha[1] + alpha[2]*(pred[j]-695) + betanew
+			logit(probpred[j]) <- lppred[j]
+		}
+		betanew ~ dnorm(0,tau)
+}
+
+### e.	Where what predictions we are interested in are given.  
+
+logit(probpred[j]) <- lppred[j]
+
+## 2.	Give time series plots and autocorrelation plots for sigma and for alpha[2].  Give an estimate of how many iterations are sufficient for good estimation.  
+```{r}
+model1parameters= c("alpha", "p", "probpred", "beta", "tau", "sigma")
+
+#### Did you load the data yet???
+
+run1=jags(model1data, model1inits, model1parameters, "model1.txt", n.chains=3, n.iter=11000, n.burnin=0, n.thin=1, DIC=F)
+
+Output1=AddBurnin(run1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+
+# print the summary and see order of the parameters 
+# print(Output1$Burnin.Summary)
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(Output1$Burnin.sims.array[,1,2], main="", lag.max=150) 
+mtext("alpha[2]",side=3, line=1, cex=.8)
+acf(Output1$Burnin.sims.array[,1,137], main="",lag.max=150) 
+mtext("sigma", side=3, cex=.8, line=1)
+```
+
+100 iterations are sufficient for good estimation.
+
+
+## 3.	Which p[i] is largest?  Discuss (1-2 sentences) how you decide this, as there is more than one way to determine this.
+
+```{r}
+#Boxplots for p
+par(mfrow=c(1,1)) # sets plots in a 1x1 grid
+#You may need to change the window size of the plot
+boxplot(Output1$Burnin.sims.matrix[,c(seq(67,128))], range=0, axes=F)
+axis(side=1,at=seq(1,62,5), labels=paste("p",seq(1,62,5)))
+axis(side=2, at=0:5/5, labels=0:5/5)
+box()
+```
+
+From the plot, we can see p[25] is the largest.
+Here is another way.
+```{r}
+names <- paste0("p[", 1:62, "]")
+p <- as.data.frame(Output1$Burnin.Summary[names, ])
+max_row <- p[which.max(p$mu.vect),]
+max_index <- rownames(max_row)
+max_index
+```
+
+
+## 4.	Which beta[i] is largest?  Does it correspond to the same case as in Question 2?  Explain: Do the largest beta[i] and the largest p[i] have to correspond to the same case [i]?  
+
+```{r}
+#Boxplots for Beta
+boxplot(Output1$Burnin.sims.matrix[,c(seq(5,66))], range=0, axes=F)
+axis(side=1,at=seq(1,62,5), labels=paste("Beta",seq(1,62,5)))
+axis(side=2, at=c(-5,0,5), labels=c(-5,0,5))
+box()
+```
+
+From the plot, we can see Beta[29] is the largest. It does not correspond to the same case as in Question 2?  The largest beta[i] and the largest p[i] doe not have to correspond to the same case [i].
+
+## 5.	Plot posterior estimates of (.05, median, .95) for each prediction against blood glucose level.  Connect the dots between neighboring glucose levels.  Label and document your plot carefully.  
+
+```{r}
+plotdf1 <-as.matrix(run1$BUGSoutput$summary)
+probnames <- c("probpred[1]","probpred[2]","probpred[3]","probpred[4]","probpred[5]","probpred[6]","probpred[7]","probpred[8]")
+plotdf2 <- plotdf1[probnames, c("2.5%", "50%", "97.5%")]
+plotdf <- data.frame(bloodglucose = seq(100, 800, 100), 
+                 label = rep(c("2.5%", "Median", "97.5%"), each = 8), 
+                 prediction = c(plotdf2[, 1], plotdf2[, 2], plotdf2[, 3]))
+```
+
+```{r}
+ggplot(data = plotdf, aes(x = bloodglucose, y = prediction, colour = label)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Plot of posterior estimates of  prediction",
+       x = "blood glucose level", y = "prediction prob.") +  
+  ylim(0, 1) + theme_bw()
+```
+## 6.	Repeat questions 1-4 for model.  One question does not make sense.  Which is it?  Why doesn’t it make sense?  
+```{r}
+# sink("model2.txt")
+# cat("
+# # Model #2  
+# model
+# {
+#         for (i in 1:N)
+#         { 
+#                 y[i] ~ dbin(p[i], n[i])
+#                 p[i] ~ dbeta(a[i],b)
+#                 a[i] <- b * exp(alpha[1] +alpha[2]*(z[i]-695) + 
+#                         x1[i]*alpha[3] +x2[i]*alpha[4])
+#         }
+        # for (j in 1:4)
+        # {
+        #         alpha[j] ~dnorm(0, 0.001)
+        # }
+        # b ~ dgamma(ba,bb)
+# }
+#     ",fill = TRUE)
+# sink()
+```
+
+### a.	Where the likelihood is modeled;
+
+p[i] ~ dbeta(a[i],b)
+
+### b.	Where the priors are modeled;
+
+for (j in 1:4)
+{
+    alpha[j] ~dnorm(0, 0.001)
+}
+b ~ dgamma(ba,bb)
+
+### c.	Where the linear predictor is specified;
+
+a[i] <- b * exp(alpha[1] +alpha[2]*(z[i]-695) +  x1[i]*alpha[3] +x2[i]*alpha[4])
+
+### d.	Where the predictions are modeled;
+### e.	Where what predictions we are interested in are given.  
+
+p[i]
+
+Questions 2 and 4 do not make sense. Because model 2 does not have sigma and beta.
+
+```{r}
+# run1=jags(model2data, model2inits, model1parameters, "model1.txt", n.chains=3, n.iter=11000, n.burnin=0, n.thin=1, DIC=F)
+# 
+# Output1=AddBurnin(run1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+```
+
+
+
+

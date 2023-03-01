@@ -1,0 +1,29 @@
+
+# Response is number of Exencephaly malformations 
+# out of the total number of live fetuses
+# in the litter.  
+# Model #1.  
+model
+{
+        for (i in 1:N)
+        { 
+                y[i] ~ dbin(p[i], n[i])
+                logit(p[i]) <-  alpha[1] +alpha[2]*(z[i]-695) + beta[i] + 
+                                x1[i]*alpha[3] +x2[i]*alpha[4]
+                beta[i] ~ dnorm(0, tau)
+        }
+        for (j in 1:4)
+        {
+                alpha[j] ~dnorm(0, 0.001)
+        }
+        sigsq ~ dunif(0,6)
+        tau <- 1/sigsq
+        sigma <- sqrt(sigsq)
+	for(j in 1:npred)
+		{
+			lppred[j] <- alpha[1] + alpha[2]*(pred[j]-695) + betanew
+			logit(probpred[j]) <- lppred[j]
+		}
+		betanew ~ dnorm(0,tau)
+}
+    

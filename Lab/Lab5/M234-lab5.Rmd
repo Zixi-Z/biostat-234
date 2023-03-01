@@ -1,0 +1,356 @@
+---
+title: "M234-lab5"
+author: "Zixi Zhang"
+date: "2023-02-17"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Lab/Lab5")
+getwd()
+expit = function(a) exp(a)/(1+exp(a))
+logit = function(a) log(a/(1-a))
+```
+
+
+```{r}
+#LOAD NECESSARY PACKAGES
+library(R2jags)
+load("AddBurnin.RData")
+library(lattice)
+library("bayesplot")
+library("ggmcmc")
+library("ggplot2")
+library(xtable)
+R.Version()
+help(xtable)
+```
+
+```{r}
+# useful function
+mysummary = function(invector) {
+  c(mean(invector), sd(invector), quantile(invector, .025), 
+    quantile(invector,.975),
+    length(invector[invector>0])/length(invector))
+}
+```
+
+
+9 papers, metadata has 1 paper per row, subjects reporting to the emergency department with syncope.
+columns 2 and 4 are subjects with bad outcomes after (usually) 30 days. 
+columns 1 and 3 are total numbers of subjects. columns 1,2 do not have previously
+reported heart disease (HD), columns 3,4 do have previously reported heart disease (HD). 
+Treat column 2 as binomial, unknown success probability out of column 1, 
+Same for column 4 out of column 3. 
+The question to answer is whether people with previously reported heart
+disease have greater propensity for bad outcomes after coming to the ED with syncope. 
+
+
+```{r}
+metadata = matrix(data = c(
+    506,     21,    164,     20,
+  20614,    222,   1575,     59,
+  32279,    681,   3051,    212,
+    234,     49,     59,     19,
+    201,     28,     30,     11,
+    568,     60,    116,     19,
+   2035,    130,    549,     43,
+    406,     32,     99,     17,
+   2946,     55,    831,     83), byrow=T, ncol=4)
+metadata
+colnames(metadata) = c("n0.HD", "y0.HD", "n1.HD", "y1.HD")
+dim(metadata)
+xtable(metadata, digits=0) # table output in latex format
+
+# brief exploration of the data
+round(cbind(metadata[,2]/metadata[,1],metadata[,4]/metadata[,3]),3)
+
+zzz = cbind(metadata[,2]/metadata[,1],metadata[,4]/metadata[,3])
+ORs = (zzz[,2]/(1-zzz[,2]))/ (zzz[,1]/(1-zzz[,1]))
+
+zzz = cbind(zzz, ORs)
+
+xtable(zzz, digits=c(0,3,3,2))
+
+```
+
+Informal conclusion:
+People without HD (column 1 of output) have a lower fraction of bad outcomes compared
+to people with HD (column 2) in all 9 studies. 
+Can we show that formally with a model that estimates the amount of improvement
+and gives us a measure of uncertainty?
+
+```{r}
+#Meta-analysis model 1
+# sink("syncope1.txt")
+# cat("
+#     model
+#     {
+#     for( i in 1:npapers ) {
+#       y0[i] ~ dbin(pie0[i],n0[i])
+#       y1[i] ~ dbin(pie1[i],n1[i])
+#       logit(pie0[i]) = alpha + beta[i] - delta[i]/2
+#       logit(pie1[i]) = alpha + beta[i] + delta[i]/2
+#       beta[i]  ~ dnorm(0 , sigmainv2)
+#       delta[i] ~ dnorm(d0, tauinv2  )
+#       OR[i]    = (pie1[i]/(1 - pie1[i])) / (pie0[i]/(1 - pie0[i]))
+#     }
+#     alpha ~ dnorm(a, b)
+#     d0    ~ dnorm(0, d)
+#     sigmainv2 ~ dgamma(c1,c2)
+#     tauinv2   ~ dgamma(f1,f2)
+#   sigma = 1/sqrt(sigmainv2)
+#   tau   = 1/sqrt(tauinv2) 
+#     }
+#     ",fill = TRUE)
+# sink()
+
+# Prior parameters
+npapers = 9
+a = -2.75  #
+b = 1/2
+d = 1/2
+c1 = f1 = 3
+c2 = f2 = 2
+
+
+parameters= c(
+  "pie0", "pie1", "alpha", "sigma", 
+  "tau", "d0", "OR"
+)
+
+priordata = list( npapers = npapers, a=a, b=b, d = d, c1=c1, f1 = f1,
+                  c2 = c2, f2 = f2, y0 = metadata[,2], n0 = metadata[,1],
+                  y1 = metadata[,4], n1 = metadata[,3]
+)
+
+inits = rep(list(list(
+  beta   = rep(0,npapers),  
+  delta   = rep(0,npapers),  
+  alpha = 0, 
+  d0 = 0,
+  sigmainv2 = 1,
+  tauinv2 = 1
+)), 5)
+
+parameters
+inits
+priordata
+```
+
+```{r}
+proc.time()
+run1 = jags(priordata, inits, parameters, "syncope1.txt", 
+            n.chains=5, n.iter=1100, n.burnin=0, n.thin=1)
+proc.time()
+
+names(run1)
+Output1=AddBurnin(run1$BUGSoutput$sims.array,burnin=100,n.thin=1)
+
+names(Output1)
+print(Output1$Burnin.Summary)
+colnames(Output1$Burnin.sims.matrix)
+```
+
+```{r}
+#help(apply)
+dim(Output1$Burnin.sims.array)
+dim(Output1$Burnin.sims.matrix)
+regout = t(apply( Output1$Burnin.sims.matrix, 2, mysummary))
+colnames(regout) = c("mean", "sd", "2.5%", "97.5%", "P>0")
+rownames(regout) = colnames(Output1$Burnin.sims.matrix)
+round(regout,4)
+
+run1.mcmc <- as.mcmc(run1)
+summary(run1.mcmc)
+# ggmcmc needs to reformat the data. 
+# restructure the data as a ggmcmc object
+run1.ggs <- ggs(run1.mcmc)
+ggmcmc(run1.ggs) 
+```
+ggmcmc runs tons of different useful plots. There are keywords to reduce the 
+output to those plots of interest. See lab 10b. 
+
+
+ Here are time series plots for 4 important parameters.  
+```{r}
+maindata = Output1$Burnin.sims.matrix[,c(10,11,31,32)]
+dim(maindata)  #5000,4
+head(maindata)
+
+plot(1:5000, maindata[,1], ylab = "alpha", type="l")
+plot(1:5000, maindata[,2], ylab = "d0"   , type="l")
+plot(1:5000, maindata[,3], ylab = "sigma", type="l")
+plot(1:5000, maindata[,4], ylab = "tau"  , type="l")
+
+mysummary(exp(maindata[,2])) #What does this do? 
+```
+
+unfortunately convergence looks lousy for alpha and sigma. 
+What is one way to improve the computations?
+
+Here is a second way to improve the computations. 
+Here is a reparameterized model. See if you can figure out the change.
+The difference is in the parameterization. This is the _same_ model as previously. 
+
+```{r}
+# #Meta-analysis model
+# sink("syncope1_repar.txt")
+# cat("
+#     model
+#     {
+#     for( i in 1:npapers ) {
+#     y0[i] ~ dbin(pie0[i],n0[i])
+#     y1[i] ~ dbin(pie1[i],n1[i])
+#     logit(pie0[i]) = beta[i] - delta[i]/2
+#     logit(pie1[i]) = beta[i] + delta[i]/2
+#     beta[i]  ~ dnorm(alpha , sigmainv2)
+#     delta[i] ~ dnorm(d0, tauinv2  )
+#     OR[i]    = (pie1[i]/(1 - pie1[i])) / (pie0[i]/(1 - pie0[i]))
+#     }
+#     alpha ~ dnorm(a, b)
+#     d0    ~ dnorm(0, d)
+#     sigmainv2 ~ dgamma(c1,c2)
+#     tauinv2   ~ dgamma(f1,f2)
+#     sigma = 1/sqrt(sigmainv2)
+#     tau   = 1/sqrt(tauinv2) 
+#     }
+#     ",fill = TRUE)
+# sink()
+```
+
+
+## Problem 0. 
+Repeat everything with the reparameterized model
+Now how is the convergence? 
+
+```{r}
+run2 = jags(priordata, inits, parameters, "syncope1_repar.txt", 
+            n.chains=5, n.iter=1100, n.burnin=0, n.thin=1)
+
+names(run2)
+Output2=AddBurnin(run2$BUGSoutput$sims.array,burnin=100,n.thin=1)
+
+names(Output2)
+print(Output2$Burnin.Summary)
+colnames(Output2$Burnin.sims.matrix)
+
+maindata2 = Output2$Burnin.sims.matrix[,c(10,11,31,32)]
+dim(maindata2)  #5000,4
+head(maindata2)
+
+plot(1:5000, maindata2[,1], ylab = "alpha", type="l")
+plot(1:5000, maindata2[,2], ylab = "d0"   , type="l")
+plot(1:5000, maindata2[,3], ylab = "sigma", type="l")
+plot(1:5000, maindata2[,4], ylab = "tau"  , type="l")
+
+mysummary(exp(maindata2[,2]))
+```
+
+
+
+## Problem 1.
+### 1a. What is the change in the model from first version to second version? 
+In the first model, we model `logit(pie0[i])` and `logit(pie1[i])` as a function of $\alpha$,$\beta_i$, and $\delta_i$, while in the second model, we model `logit(pie0[i])` and `logit(pie1[i])` as a function of $\alpha$, $\beta_i - \delta_i/2$, and $\beta_i + \delta_i/2$. In the first version $\beta_i \sim N(0,\sigma^2)$ while in the reparameterized model $\beta_i \sim N(\alpha,\sigma^2)$.
+
+### 1b. Is the model any different? 
+
+The parameterization is different, the model is the same.
+
+### 1c. Have any parameters changed meaning? Which are they, what are the changes?
+$\beta$ changed meaning.
+In the first model, $\beta$  represented thestudy level random effect modeling differences between studies. 
+while in the second model, $\beta$ represents the overall success parameter.
+
+### 1d. Is the posterior of any of the parameters any different from the original model? 
+
+The posterior of $\beta_s$ is different from the original model.
+
+### 1e. What are differences between the output of the first model and the second version? 
+
+The posterior distributions and inferences tend to be more reliable for the second version of the model, given its more stable convergence properties.
+
+## Problem 2. 
+### 2a. What is the single parameter are we most interested in? 
+### Has it changed meaning between the two model versions? Use model 2 for the remainder of this problem. 
+The parameter of primary interest in this model is `delta`, which represents the 
+difference in log-odds of bad outcomes between the two groups, with and without prior heart disease.
+
+### 2b. What is your conclusion? Report your conclusion as an Odds Ratio and 95% interval.
+###     Do people with prior Heart Disease have better, the same or worse outcomes after visiting the emergency room for syncope compared to those without heart disease? Give both a quantitative and a qualitative answer. 
+
+The Odds Ratio mean is 2.669, and the 95% interval is (1.560,4.251).
+This indicates that the odds of bad outcomes are 1.60 to 4.25 times higher for patients without prior heart disease, compared to patients with prior heart disease, after visiting the emergency room for syncope. Therefore, people with prior heart disease have worse outcomes after visiting the emergency room for syncope, compared to those without prior heart disease.
+
+## Problem 3. 
+### Use the 2nd model for this problem. As sensitivity analysis for a meta-analysis, we rerun the analysis omitting each paper in turn. If there are $n$ papers contributing data to the the analysis, we run $n$ additional analyses. A paper, that when omitted, changes our conclusions substantially is considered an influential paper. 
+
+### 3a. Report a table of the most important inference and how it changes as we delete each paper in turn. Clearly label and format your table. 
+
+
+```{r}
+npapers1 = 8
+
+parameters= c(
+  "pie0", "pie1", "alpha", "sigma", 
+  "tau", "d0", "OR"
+)
+
+inits = rep(list(list(
+  beta   = rep(0,npapers1),  
+  delta   = rep(0,npapers1),  
+  alpha = 0, 
+  d0 = 0,
+  sigmainv2 = 1,
+  tauinv2 = 1
+)), 5)
+
+# set up  df to store results
+d0 <- data.frame(
+  mean = numeric(9),
+  `std. deviation` = numeric(9),
+  `2.5%` = numeric(9),
+  `97.5%` = numeric(9),
+  `P>0` = numeric(9),
+  row.names = c("paper1", "paper2", "paper3", "paper4", "paper5", "paper6", "paper7", "paper8", "paper9")
+)
+
+# set column names
+colnames(d0) <- c("mean", "std. deviation", "2.5%", "97.5%", "P>0")
+
+# loop over each paper and re-run the analysis with that paper omitted
+for (i in 1:9) {
+  
+  metadata1 <- metadata[-i,]
+  priordata_sensitivity = list(npapers = npapers1, a=a, b=b, d = d, c1=c1, f1 = f1,
+                               c2 = c2, f2 = f2, y0 = metadata1[,2], n0 = metadata1[,1],
+                               y1 = metadata1[,4], n1 = metadata1[,3])
+  # re-run JAGS with ith paper omitted
+  run_sensitivity = jags(priordata_sensitivity, inits, parameters, "syncope1_repar.txt", 
+                         n.chains=5, n.iter=1100, n.burnin=0, n.thin=1)
+  Output3=AddBurnin(run_sensitivity$BUGSoutput$sims.array,burnin=100,n.thin=1)
+  
+  
+  d0single = Output3$Burnin.Summary[10 ,]
+  d0[i,] = round(mysummary(d0single), 3)
+  
+}
+
+knitr::kable(d0,
+             caption = "Summary of Sensitivity Analysis Results for Second Model")
+```
+### 3b. Which paper is most influential? 
+
+Since the "P>0" column of the table is all 1, it means that omitting any paper did not change the conclusions substantially. Therefore, we cannot identify any influential paper using this sensitivity analysis.
+
+
+
+### 3c. What is your conclusion? Is the final inference sensitive to omitting individual papers? 
+
+The final inference is not sensitive to omitting any individual paper. 

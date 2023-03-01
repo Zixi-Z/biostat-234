@@ -1,0 +1,20 @@
+
+    model
+    {
+    for( i in 1:npapers ) {
+      y0[i] ~ dbin(pie0[i],n0[i])
+      y1[i] ~ dbin(pie1[i],n1[i])
+      logit(pie0[i]) = alpha + beta[i] - delta[i]/2
+      logit(pie1[i]) = alpha + beta[i] + delta[i]/2
+      beta[i]  ~ dnorm(0 , sigmainv2)
+      delta[i] ~ dnorm(d0, tauinv2  )
+      OR[i]    = (pie1[i]/(1 - pie1[i])) / (pie0[i]/(1 - pie0[i]))
+    }
+    alpha ~ dnorm(a, b)
+    d0    ~ dnorm(0, d)
+    sigmainv2 ~ dgamma(c1,c2)
+    tauinv2   ~ dgamma(f1,f2)
+  sigma = 1/sqrt(sigmainv2)
+  tau   = 1/sqrt(tauinv2) 
+    }
+    
