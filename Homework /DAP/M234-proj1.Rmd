@@ -1,0 +1,298 @@
+---
+title: "M234-proj1"
+author: "Zixi Zhang"
+date: "2023-03-07"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(R2jags)
+library(lattice)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(gtable)
+library(gridExtra)
+```
+
+```{r}
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Projects/DAP1")
+getwd()
+#load dataset
+load("dap1data.RData")
+load("AddBurnin.RData")
+```
+
+```{r}
+head(nursebp)
+```
+
+```{r}
+dim(nursebp) ## How many observations and variables in this study?
+length(unique(nursebp$idnum)) ## How many subjects?
+unique(nursebp$famhist) ## How many values does FH123 take on?
+table(nursebp$famhist) ## How often do those values occur?
+table(nursebp$work) ##
+summary(nursebp$SYS)
+sd(nursebp$SYS)
+summary(nursebp$SYS)
+# Boxplot1 - factor(famhist)
+p1 <- ggplot(nursebp, aes(x=factor(famhist), y=SYS, fill=factor(famhist))) +
+  geom_boxplot() + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + theme_classic()
+p1
+# Boxplot2 - factor(work)
+p2 <- ggplot(nursebp, aes(x=factor(work), y=SYS, fill=factor(work))) +
+  geom_boxplot() +scale_fill_brewer(palette = "Set1") + theme_classic()
+p2 
+# Boxplot3 - factor(phase)
+p3 <- ggplot(nursebp, aes(x=factor(phase), y=SYS, fill=factor(phase))) +
+  geom_boxplot() + scale_fill_brewer(palette="Dark2") + theme_classic()
+p3 
+grid.arrange(
+  p1,
+  p2,
+  p3,
+  nrow = 2,
+  top = "Boxpolots of SYS"
+)
+## stat summary for table
+nursebp %>% 
+  group_by(famhist) %>%
+  summarise(mean(SYS), sd(SYS), n_distinct(idnum))
+nursebp %>% 
+  group_by(work) %>%
+  summarise(mean(SYS), sd(SYS), n_distinct(idnum))
+nursebp %>% 
+  group_by(phase) %>%
+  summarise(mean(SYS), sd(SYS), n_distinct(idnum))
+groupmean <- nursebp%>% 
+  group_by(idnum) %>%
+  summarise(mean(SYS), sd(SYS))
+summary(groupmean$`mean(SYS)`)
+```
+
+
+#### 3. Model 
+
+```{r}
+sink("proj1model1.txt")
+cat("
+model{
+# the likelihood contribution
+for(i in 1:N) {
+	y[i] ~ dnorm( mu[i], tau2) 
+	mu[i] <- inprod(x[i,],alpha[]) + beta[idnum[i]]
+}
+# the priors for the fixed effects
+for(j in 1:J) {
+	alpha[j] ~ dnorm( m[j], prec[j] )
+	alphastep[j] <- step(alpha[j])
+}
+# the priors for the random effects
+for(k in 1:K) {
+	beta[k] ~ dnorm(0, dinv2)
+}
+dinv2 ~ dgamma(da,db) 
+tau2  ~ dgamma(ta,tb)
+sigma <- 1/sqrt(tau2)
+d     <- 1/sqrt(dinv2)
+}
+    ",
+fill = TRUE)
+sink()
+```
+
+
+#### 4. Prior
+
+```{r}
+bpdata = list(y = nursebp$sys, idnum=nursebp$idnum, 
+		x = matrix(data=c(rep(1,9573), nursebp[,3], nursebp[,4]), byrow=F, ncol=3), 
+		N = 9573, J = 3, K = 203, da=1.0, db = 1.0, ta=1.0, tb=1.0, 
+			m=c(110.0,0.0,0.0), prec=c(.001,.01,.01) )
+bpinits = rep(list(list( alpha = c(110.,3.,4.), beta=as.vector(rnorm(203)), tau2=1, dinv2 = 1)), 5)
+bpparameters = c("alpha", "alphastep", "beta", "tau2", "sigma", "dinv2", "d")
+length(bpinits)
+run1 = jags(data = bpdata, inits = bpinits, parameters.to.save = bpparameters, "proj1model1.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1, DIC = F)
+Output1=AddBurnin(run1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+print(Output1$Burnin.Summary)
+```
+
+
+```{r}
+#Boxplots for Betas
+boxplot(Output1$Burnin.sims.matrix[,c(seq(6,208))], range=0, axes=F)
+axis(side=1,at=seq(1,62,6), labels=paste("Beta",seq(1,62,6)))
+axis(side=2, at=c(-5,0,5), labels=c(-5,0,5))
+box()
+```
+
+```{r}
+sink("proj1model.txt")
+cat("
+model{
+# the likelihood
+for(i in 1:N) {
+	y[i] ~ dnorm( mu[i], tau.e) 
+	mu[i] <- inprod(x[i,],alpha[]) + beta[idnum[i]]
+}
+# priors for fixed effects
+for(j in 1:J) {
+	alpha[j] ~ dnorm( m[j], prec[j])
+}
+# priors for random effects
+for(k in 1:K) {
+	beta[k] ~ dnorm(0, tau.b)
+}
+tau.b ~ dgamma(a1,b1) 
+tau.e ~ dgamma(a2,b2)
+sigma <- 1/sqrt(tau.e)
+sqrtD <- 1/sqrt(tau.b)
+}
+    ",fill = TRUE)
+sink()
+```
+
+```{r}
+# data preparation 
+y = nursebp$SYS
+idnum=nursebp$idnum
+hist = nursebp[,3]
+work = nursebp[,4]
+phase = nursebp[,5]
+hw = hist*work
+x = matrix(data=c(rep(1,9573), hist, work, phase, hw), byrow=F, ncol=5)
+# 
+bpdata1 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(129.1, 6.46, 6.00, 2.44, 0.0), 
+              prec = c(.05, 1.20, .1, .01, .01) )
+bpinits = rep(list(list( alpha = c(115., 1, 1, 1, 1), beta=as.vector(rnorm(203)), tau.b = 1, tau.e = 1)), 5)
+bpparameters = c("alpha", "beta", "tau.e", "tau.b", "sigma", "sqrtD")
+length(bpinits)
+run1 = jags(data = bpdata1, inits = bpinits, parameters.to.save = bpparameters, "proj1model.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+Output1=AddBurnin(run1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+print(Output1$Burnin.Summary)
+run1$DIC
+```
+```{r}
+library(lme4)
+lr <- lmer(y~hist*work + phase + (1|as.factor(idnum)))
+summary(lr)
+anova(lr)
+# sigma^2 = 171
+```
+
+## Sensitive analysis
+```{r}
+bpdata1 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(115.0, 3, 3, 0.0, 0.0), 
+              prec = c(.01, .1, .1, .1, .1) )
+bpdata2 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(115.0, 3, 3, 0.0, 0.0), 
+              prec = c(.025, .36, .23, .25, .25) )
+bpdata3 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(115.0, 3, 3, 0.0, 0.0), 
+              prec = c(.62, .52, .25, .69, .28) )
+bpdata4 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(115.0, 3, 3, 0.0, 0.0), 
+              prec = c(6.2, 5.2, 2.5, 6.9, 2.8) )
+bpdata5 = list(y = y, 
+              idnum = idnum, 
+              x = x, 
+              N = 9573, 
+              J = 5, 
+              K = 203, 
+              a1 = 1.0, 
+              b1 = 64.0, 
+              a2 = 2.0, 
+              b2 = 100.0, 
+              m = c(115.0, 3, 3, 0.0, 0.0), 
+              prec = c(.062, .052, .025, .069, .028) )
+run2 = jags(data = bpdata2, inits = bpinits, parameters.to.save = bpparameters, "proj1model.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+run3 = jags(data = bpdata3, inits = bpinits, parameters.to.save = bpparameters, "proj1model.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+run4 = jags(data = bpdata4, inits = bpinits, parameters.to.save = bpparameters, "proj1model.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+run5 = jags(data = bpdata5, inits = bpinits, parameters.to.save = bpparameters, "proj1model.txt", 
+	n.chains=5, n.iter=11000, n.burnin=0, n.thin=1)
+```
+
+
+## Result analysis
+```{r}
+par(mfrow=c(2,3))
+acf(run1$BUGSoutput$sims.array[1001:11000,1,1], main="intercept", lag.max = 50)
+acf(run1$BUGSoutput$sims.array[1001:11000,1,2], main="Hist", lag.max = 50)
+acf(run1$BUGSoutput$sims.array[1001:11000,1,3], main="Work", lag.max = 50)
+acf(run1$BUGSoutput$sims.array[1001:11000,1,4], main="Phase", lag.max = 50)
+acf(run1$BUGSoutput$sims.array[1001:11000,1,5], main="interaction(histXwork)", lag.max = 50)
+# trace plot 
+par(mfrow=c(2,3))
+plot(run1$BUGSoutput$sims.array[1001:11000,1,1], main="intercept", type="l",ylab = "")
+plot(run1$BUGSoutput$sims.array[1001:11000,1,2], main="Hist", type="l",ylab = "")
+plot(run1$BUGSoutput$sims.array[1001:11000,1,3], main="Work", type="l",ylab = "")
+plot(run1$BUGSoutput$sims.array[1001:11000,1,4], main="Phase", type="l",ylab = "")
+plot(run1$BUGSoutput$sims.array[1001:11000,1,5], main="interaction(histXwork)", type="l",ylab = "")
+# Boxplot for betas
+beta1.50 <- Output1$Burnin.sims.matrix[,c(seq(6,55))]
+beta51.100 <- Output1$Burnin.sims.matrix[,c(seq(56,105))]
+beta101.150 <- Output1$Burnin.sims.matrix[,c(seq(106,155))]
+beta151.203 <- Output1$Burnin.sims.matrix[,c(seq(156,208))]
+par(mfrow=c(2,2))
+boxplot(beta1.50, range=0)
+boxplot(beta51.100, range=0)
+boxplot(beta101.150, range=0)
+boxplot(beta151.203, range=0)
+```

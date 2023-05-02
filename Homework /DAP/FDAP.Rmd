@@ -1,0 +1,356 @@
+---
+title: "FDAP_random"
+author: "Zixi Zhang"
+date: "2023-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(R2jags)
+```
+
+
+
+```{r}
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Projects/FinalProject")
+getwd()
+# import data from an .asc file
+load("brfss2013.RData")
+load("AddBurnin.RData")
+```
+
+```{r}
+# select interested variables
+df_13 <- brfss2013[c("cvdinfr4", "X_state","X_bmi5","X_race","sex","sleptim1","avedrnk2","X_age_g")]
+# delete rows with missing value
+new_df <- df_13[complete.cases(df_13), ]
+# get sample from the huge dataset
+# Set the seed for reproducibility
+set.seed(123)
+# Randomly select 6000 rows
+sampled_df <- new_df[sample(nrow(new_df), 6000), ]
+
+sampled_df <- sampled_df %>%
+  mutate(Race = case_when(
+    X_race == "White only, non-Hispanic" ~ "White only, non-Hispanic",
+    X_race == "Black only, non-Hispanic" ~ "Black only, non-Hispanic",
+    X_race == "Hispanic" ~ "Hispanic",
+    TRUE ~ "Other"
+  ))
+
+sampled_df$bmi <- sampled_df$X_bmi5/100
+
+# Summary statistics for continuous variables
+continuous_vars <- sampled_df[, c("bmi", "sleptim1", "avedrnk2")]
+summary_stats <- data.frame(
+  Variable = colnames(continuous_vars),
+  Mean = apply(continuous_vars, 2, mean),
+  SD = apply(continuous_vars, 2, sd)
+)
+print(summary_stats)
+
+# Frequencies and percentages for categorical variables
+categorical_vars <- sampled_df[, c("Race","sex", "X_age_g")]
+for (var in colnames(categorical_vars)) {
+  cat("\n", "Variable:", var, "\n")
+  freq_table <- table(categorical_vars[[var]])
+  percentage_table <- prop.table(freq_table) * 100
+  cat("Frequency table:\n")
+  print(freq_table)
+  cat("Percentage table:\n")
+  print(percentage_table)
+}
+
+
+```
+
+```{r}
+library(gridExtra)
+# Create a histogram for BMI
+# Histogram for X_bmi5
+hist_bmi <- ggplot(sampled_df, aes(x = X_bmi5)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Histogram of BMI", x = "BMI", y = "Frequency")
+
+# Histogram for avedrnk2
+hist_avedrnk2 <- ggplot(sampled_df, aes(x = avedrnk2)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Histogram of AverageDrink", x = "avedrnk2", y = "Frequency")
+
+# Histogram for sleeptime
+hist_sleeptime <- ggplot(sampled_df, aes(x = sleptim1)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Histogram of sleeptime", x = "sleptim1", y = "Frequency")
+grid.arrange(hist_bmi, hist_avedrnk2, hist_sleeptime, ncol = 2)
+
+
+ggplot(sampled_df, aes(x = X_age_g, fill = X_age_g)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title = "Bar Plot of AgeGroup", x = "AgeGroup", y = "Frequency")
+
+ggplot(sampled_df, aes(x = Race, fill = Race)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title = "Bar Plot of Race", x = "Race", y = "Frequency")
+
+ggplot(sampled_df, aes(x = sex, fill = sex)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title = "Bar Plot of Sex", x = "Race", y = "Frequency")
+
+```
+
+
+```{r}
+print(table(sampled_df$X_age_g))
+```
+```{r}
+print(table(sampled_df$sex))
+```
+
+```{r}
+# Get the frequency table of X_state
+freq_table <- table(sampled_df$X_state)
+
+# Count the number of non-zero values in the frequency table
+num_states <- sum(freq_table != 0)
+
+# Print the number of states
+cat("There are", num_states, "unique states in the X_state variable.")
+```
+
+
+```{r}
+X_state_factor <- factor(sampled_df$X_state)
+
+# Convert factor levels to numbers
+sampled_df$State <- as.numeric(X_state_factor)
+
+sampled_df$HeartDisease <- ifelse(sampled_df$cvdinfr4 == "Yes", 1, 0)
+
+# Convert Sex to binary values (1 for 'Male', 0 for 'Female')
+sampled_df$Sex_bin <- ifelse(sampled_df$sex == "Male", 1, 0)
+
+# Create dummy variables for AgeCategory 
+sampled_df$age_25_34 <- ifelse( sampled_df$X_age_g == "Age 25 to 34", 1, 0)
+sampled_df$age_35_44 <- ifelse( sampled_df$X_age_g == "Age 35 to 44", 1, 0)
+sampled_df$age_45_54 <- ifelse( sampled_df$X_age_g == "Age 45 to 54", 1, 0)
+sampled_df$age_55_64 <- ifelse( sampled_df$X_age_g == "Age 55 to 64", 1, 0)
+sampled_df$age_65_plus <- ifelse( sampled_df$X_age_g == "Age 65 or older", 1, 0)
+
+# Create dummy variables for Race
+sampled_df$Black <- ifelse( sampled_df$Race == "Black only, non-Hispanic", 1, 0)
+sampled_df$Hispanic <- ifelse( sampled_df$Race == "Hispanic", 1, 0)
+sampled_df$Other <- ifelse( sampled_df$Race == "Other", 1, 0)
+
+bayedf <-sampled_df[c("HeartDisease","Sex_bin","age_25_34","age_35_44","age_45_54"
+                     ,"age_55_64","age_65_plus","Black","Hispanic","Other","State",
+                     "sleptim1","avedrnk2","bmi")]
+summary(bayedf)
+```
+
+
+```{r}
+cat(
+"model {
+  for (i in 1:N.obs) {
+    y[i] ~ dbern(pie[i])
+    logit(pie[i]) <- alpha[1] + inprod(x[i, ], alpha[2:13]) + beta[state[i]]
+  }
+
+  for (j in 1:N.states) {
+    beta[j] ~ dnorm(0, tau)
+  }
+
+  alpha[1] ~ dnorm(mu[1], tau.a)
+  alpha[2] ~ dnorm(mu[2], tau.a)
+  alpha[3] ~ dnorm(mu[3], tau.a)
+  alpha[4] ~ dnorm(mu[4], tau.a)
+  alpha[5] ~ dnorm(mu[5], tau.a)
+  alpha[6] ~ dnorm(mu[6], tau.a)
+  alpha[7] ~ dnorm(mu[7], tau.a)
+  alpha[8] ~ dnorm(mu[8], tau.a)
+  alpha[9] ~ dnorm(mu[9], tau.a)
+  alpha[10] ~ dnorm(mu[10], tau.a)
+  alpha[11] ~ dnorm(mu[11], tau.a)
+  alpha[12] ~ dnorm(mu[12], tau.a)
+  alpha[13] ~ dnorm(mu[13], tau.a)
+
+  tau ~ dgamma(b1, b2)
+  sigma <- 1 / tau
+}",
+  fill = TRUE,
+	file = "model1.txt")
+```
+
+
+```{r}
+cat(
+"model {
+  for (i in 1:N.obs) {
+    y[i] ~ dbern(pie[i])
+    logit(pie[i]) <- alpha[1] + inprod(x[i, ], alpha[2:14]) + beta[state[i]]
+  }
+
+  for (j in 1:N.states) {
+    beta[j] ~ dnorm(0, tau)
+  }
+
+  alpha[1] ~ dnorm(mu[1], tau.a)
+  alpha[2] ~ dnorm(mu[2], tau.a)
+  alpha[3] ~ dnorm(mu[3], tau.a)
+  alpha[4] ~ dnorm(mu[4], tau.a)
+  alpha[5] ~ dnorm(mu[5], tau.a)
+  alpha[6] ~ dnorm(mu[6], tau.a)
+  alpha[7] ~ dnorm(mu[7], tau.a)
+  alpha[8] ~ dnorm(mu[8], tau.a)
+  alpha[9] ~ dnorm(mu[9], tau.a)
+  alpha[10] ~ dnorm(mu[10], tau.a)
+  alpha[11] ~ dnorm(mu[11], tau.a)
+  alpha[12] ~ dnorm(mu[12], tau.a)
+  alpha[13] ~ dnorm(mu[13], tau.a)
+  alpha[14] ~ dnorm(mu[14], tau.a) 
+  tau ~ dgamma(b1, b2)
+  sigma <- 1 / tau
+}",
+  fill = TRUE,
+	file = "model2.txt")
+```
+
+
+
+
+
+```{r}
+y = bayedf$HeartDisease
+x = bayedf[, c("bmi","Sex_bin", "age_25_34", "age_35_44", "age_45_54", "age_55_64", "age_65_plus", "Black", "Hispanic", "Other", "sleptim1", "avedrnk2")]
+priormu = c(0,3,0,0,1,1,1,1,1,1,-1,-1,1)
+
+parameters <- c("pie", "alpha", "beta", "sigma")
+
+initsMod1 <- rep(
+  list(
+    list(
+      alpha = rep(0, 13),  
+      beta  = rep(0, length(unique(bayedf$State))),  
+      tau   = 1)
+  ),
+  5
+)
+
+priorDataMod1 = list(N.obs = nrow(bayedf), 
+                     N.states = length(unique(bayedf$State)),
+                     state = bayedf$State,
+                     b1 = 0.25, 
+                     b2 = 0.25,
+                     mu = priormu,
+                     tau.a = 1,
+                     y = y, 
+                     x = x)
+proc.time()
+runMod1 = jags(priorDataMod1, initsMod1, parameters, 
+               "model1.txt", 
+               n.chains = 5, n.iter = 5100, n.burnin = 0, n.thin = 1)
+proc.time()
+Output1=AddBurnin(runMod1$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+print(Output1$Burnin.Summary)
+dicMod1 <- runMod1$BUGSoutput$DIC
+Output1$Burnin.Summary[c("alpha[1]","alpha[2]","alpha[3]","alpha[4]","alpha[5]",
+                         "alpha[6]","alpha[7]","alpha[8]","alpha[9]","alpha[10]",
+                         "alpha[11]","alpha[12]","alpha[13]","sigma"),]
+```
+```{r}
+bayedf$sexavedrnk2 = bayedf$Sex_bin * bayedf$avedrnk2
+y1 = bayedf$HeartDisease
+x1 = bayedf[, c("bmi","Sex_bin", "age_25_34", "age_35_44", "age_45_54", "age_55_64", "age_65_plus", "Black", "Hispanic", "Other", "sleptim1", "avedrnk2","sexavedrnk2")]
+priormu1 = c(0,3,0,0,1,1,1,1,1,1,-1,-1,1,1)
+
+parameters <- c("pie", "alpha", "beta", "sigma")
+
+initsMod2 <- rep(
+  list(
+    list(
+      alpha = rep(0, 14),  
+      beta  = rep(0, length(unique(bayedf$State))),  
+      tau   = 1)
+  ),
+  5
+)
+
+priorDataMod2 = list(N.obs = nrow(bayedf), 
+                     N.states = length(unique(bayedf$State)),
+                     state = bayedf$State,
+                     b1 = 0.25, 
+                     b2 = 0.25,
+                     mu = priormu1,
+                     tau.a = 1,
+                     y = y1, 
+                     x = x1)
+proc.time()
+runMod2 = jags(priorDataMod2, initsMod2, parameters, "model2.txt", 
+               n.chains = 5, n.iter = 5100, n.burnin = 0, n.thin = 1)
+proc.time()
+Output2=AddBurnin(runMod2$BUGSoutput$sims.array,burnin=1000,n.thin=1)
+print(Output2$Burnin.Summary)
+dicMod2 <- runMod2$BUGSoutput$DIC
+Output2$Burnin.Summary[c("alpha[1]","alpha[2]","alpha[3]","alpha[4]","alpha[5]",
+                         "alpha[6]","alpha[7]","alpha[8]","alpha[9]","alpha[10]",
+                         "alpha[11]","alpha[12]","alpha[13]","alpha[14]","sigma"),]
+```
+```{r}
+independent_vars <- bayedf[,c("bmi","Sex_bin", "sleptim1", "avedrnk2")]
+
+
+# Calculate the correlation matrix
+correlation_matrix <- cor(independent_vars)
+print(correlation_matrix)
+```
+
+
+
+
+```{r}
+par(mfrow=c(3,3))
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,1], main="intercept", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,2], main="alpha[2]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,3], main="alpha[3]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,4], main="alpha[4]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,5], main="alpha[5]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,6], main="alpha[6]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,7], main="alpha[7]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,8], main="alpha[8]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,9], main="alpha[9]", lag.max = 50)
+par(mfrow=c(3,3))
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,10], main="alpha[10]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,11], main="alpha[11]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,12], main="alpha[12]", lag.max = 50)
+acf(runMod1$BUGSoutput$sims.array[1001:5100,1,13], main="alpha[13]", lag.max = 50)
+# trace plot 
+
+par(mfrow=c(3,3))
+# Line plots
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 1], main = "intercept", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 2], main = "alpha[2]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 3], main = "alpha[3]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 4], main = "alpha[4]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 5], main = "alpha[5]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 6], main = "alpha[6]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 7], main = "alpha[7]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 8], main = "alpha[8]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 9], main = "alpha[9]", type = "l", ylab = "")
+par(mfrow=c(3,3))
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 10], main = "alpha[10]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 11], main = "alpha[11]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 12], main = "alpha[12]", type = "l", ylab = "")
+plot(runMod1$BUGSoutput$sims.array[1001:5100, 1, 13], main = "alpha[13]", type = "l", ylab = "")
+```
