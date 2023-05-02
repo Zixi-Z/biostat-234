@@ -1,0 +1,227 @@
+---
+title: "M234-lab7"
+author: "Zixi Zhang"
+date: "2023-03-03"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+setwd("/Users/bruce/Documents/Biostat.courses/23W-M234/234Lab/Lab7")
+
+# Will need to INSTALL the package mlbench before loading it.  
+# Use "Install package(s)..." from the "Packages" menu.
+library(mlbench)
+library(R2jags)
+load("AddBurnin.RData")
+library(lattice)
+
+
+help(BostonHousing2) # note capital letters!
+data(BostonHousing2) # Allows us to access the data
+
+y = as.vector(BostonHousing2$cmedv)
+x = BostonHousing2[,7:19]
+
+
+x[,4] = as.numeric(levels(x[,4])[x[,4]])
+x = as.matrix(x)
+
+xsd = as.vector(apply(x, 2, sd))
+ysd = sd(y)
+
+xstd  = scale(x, center = TRUE, scale = TRUE)
+		# centering and scaling the x matrix.  
+		# subtracting off the variable mean and 
+		# dividing by the variable sd. 
+bostondata = list(N = 506, K = 13, ccc = 1, pidelta = .5, 
+			yvar=ysd*ysd, tau.a = 1, tau.b = .05, 
+			mb0 = 0, precb0 = .000001, z = xstd, y = y ) 
+
+# wiser to set N= 106 or smaller to test out code and confirm that it works.
+
+bostoninits = rep(list(list(b0=0, b=c(0,0,.5,0,0, 0,0,1,0,0, 0,.3,0), 
+			tau=1, delta=c(1,1,1,0,1, 1,1,1,0,1, 1,1,0))), 3)
+bostonparameters = c("b", "delta", "b0", "tau" )
+# sink("housingmodel2.txt")
+# cat("
+#     model
+# {
+#   # Variable selection model
+#   for (j in 1 : K) {
+#   pprec[j]    <- ccc * K / yvar
+#   b[j]         ~ dnorm( 0 , pprec[j] )
+#   delta[j]     ~ dbern( pidelta )
+#   }
+#   
+#   for (i in 1:N) {
+#   y[i]   ~ dnorm( mu[i] , tau )
+#   mu[i] <- b0 + z[i,1]*delta[1] * b[1] + z[i,2]*delta[2] * b[2] +
+#   z[i,3]*delta[3] * b[3] + z[i,4]*delta[4] * b[4] + z[i,5]*delta[5] * b[5] +
+#   z[i,6]*delta[6] * b[6] + z[i,7]*delta[7] * b[7] + z[i,8]*delta[8] * b[8] +
+#   z[i,9]*delta[9] * b[9] + z[i,10]*delta[10] * b[10] + z[i,11]*delta[11] * b[11] +
+#   z[i,12]*delta[12] * b[12] + z[i,13]*delta[13] * b[13]
+#   }
+#   
+#   b0    ~  dnorm(mb0,precb0)
+#   tau   ~  dgamma(tau.a,tau.b)
+#   }
+#   
+#     ",fill = TRUE)
+# sink()
+```
+
+```{r}
+run1 = jags(bostondata, bostoninits, bostonparameters, "housingmodel2.txt",
+	    n.chains=3, n.iter=11000, n.burnin=1000, n.thin=1, DIC=F) 
+Output1=AddBurnin(run1$BUGSoutput$sims.array, burnin=1000, n.thin=1)
+print(Output1$Burnin.Summary)
+```
+```{r}
+temp1 = Output1$Burnin.sims.matrix
+b      = temp1[,1:13]
+delta  = temp1[,15:27]
+bdelta = temp1[,1:13]*temp1[,15:27]
+```
+TODO:  Adapt the mysummary function to also calculate the
+       probability that the coefficient is equal to zero.
+       Call the new function 'mysummary2'.
+
+```{r}
+mysummary = function(invector) {
+c(mean(invector), sd(invector), quantile(invector, .025), 
+	quantile(invector,.975),
+	length(invector[invector>0])/length(invector))
+}
+
+mysummary2 = function(invector) {
+c(mean(invector), sd(invector), quantile(invector, .025), 
+	quantile(invector,.975),
+  length(invector[invector<0])/length(invector),
+	length(invector[invector==0])/length(invector),
+  length(invector[invector>0])/length(invector))
+}
+```
+
+1. Give the posterior mean and sd of deltatotal and plot the posterior of deltatotal. Interpret deltatotal (one sentence).
+
+deltatotal is number of predictors.
+
+```{r}
+library(ggplot2)
+deltatotal <- rowSums(delta)
+deltatotal1 <-round(mysummary(deltatotal),3)
+deltatotal_tbl <- as.data.frame(t(deltatotal1))
+knitr::kable(deltatotal_tbl,
+             caption = "posterior mean and sd of deltatotal",
+             col.names = c("mean", "standard deviation", " 2.50%", "97.5%", "P(>0)"),
+             align ="ccccc")
+deltatotal_plt = as.data.frame(deltatotal)
+ggplot(deltatotal_plt, aes(x=deltatotal)) + 
+  geom_density() + labs(title="Plot of the posterior of deltatota", x="deltatotal", y = "Density")+theme_bw()
+```
+
+2.	Regression output for all the parameters of interest. Here it might be a table for b0, bdelta and sigma (and deltatotal is of interest too, but you reported it already in #1). You need the posterior probabilities that the bdelta are negative, zero and positive as well as the usual means, sds and 95% CIs.  
+
+
+```{r,results = "asis"}
+b0 = temp1[,14]
+combinedata<- cbind(b0, bdelta)
+Regression_tbl= t(apply(combinedata, 2, mysummary2))
+knitr::kable(Regression_tbl,
+             col.names = c("mean", "standard deviation", " 2.50%", "97.5%", "P(>0|Y)", "P(=0|Y)", "P(<0|Y)"),
+             caption = "Regression output for all the parameters of interest",
+             align ="ccccccc",
+             digits = 3)
+```
+
+3.	Give results from your sensitivity analysis for pidelta. Give a summary paragraph and a table of the numerical results. 
+
+Try low, medium and high values for pidelta. Pick pidelta = 0.05,0.5 and 0.95.
+```{r}
+pidelta <- c(0.05, 0.5, 0.95)
+delta_sa1 <- matrix(NA, 13, 3)
+bdelta_sa1 <- matrix(NA, 13, 3)
+totaldelta_sa1 <- c(0,0,0)
+for (i in 1:3) {
+  p_i <- pidelta[i]
+  bostondata = list(N = 506, K = 13, ccc = 1, pidelta = p_i, 
+			yvar=ysd*ysd, tau.a = 1, tau.b = .05, 
+			mb0 = 0, precb0 = .000001, z = xstd, y = y )
+  bostonparameters = c("b", "delta", "b0", "tau" )
+  run3 = jags(bostondata, bostoninits, bostonparameters, "housingmodel2.txt",
+	    n.chains=3, n.iter=11000, n.burnin=1000, n.thin=1, DIC=T)
+  delta_sa1[,i] <- run3$BUGSoutput$mean$delta
+  totaldelta_sa1[i] <- sum(run3$BUGSoutput$mean$delta)
+  bdelta_sa1[,i] <- run3$BUGSoutput$mean$b * run3$BUGSoutput$mean$delta
+}
+```
+
+```{r,results = "asis"}
+sa1_tbl = rbind(delta_sa1, totaldelta_sa1)
+colnames(sa1_tbl) <- c("pidelta = 0.05","pidelta = 0.5","pidelta= 0.95")
+row.names(sa1_tbl) <- c("Delta1","Delta2","Delta3","Delta4","Delta5","Delta6","Delta7",
+                        "Delta8","Delta9","Delta10","Delta11","Delta12","Delta13","Deltatotal")
+knitr::kable(sa1_tbl,
+             digits = 3,
+             caption = "Mean at different pidelta",
+             align = "ccc")
+```
+
+4.	Repeat for the sensitivity analysis for ccc
+
+Pick ccc = 0.1, 1 and 10
+```{r}
+ccc <- c(0.1, 1, 10)
+delta_sa2 <- matrix(NA, 13, 3)
+bdelta_sa2 <- matrix(NA, 13, 3)
+totaldelta_sa2 <- c(0,0,0)
+for (i in 1:3) {
+  c_i <- ccc[i]
+  bostondata = list(N = 506, K = 13, ccc = c_i, pidelta = 0.5, 
+			yvar=ysd*ysd, tau.a = 1, tau.b = .05, 
+			mb0 = 0, precb0 = .000001, z = xstd, y = y )
+  bostonparameters = c("b", "delta", "b0", "tau" )
+  run4 = jags(bostondata, bostoninits, bostonparameters, "housingmodel2.txt",
+	    n.chains=3, n.iter=11000, n.burnin=1000, n.thin=1, DIC=T)
+  delta_sa2[,i] <- run4$BUGSoutput$mean$delta
+  totaldelta_sa2[i] <- sum(run4$BUGSoutput$mean$delta)
+  bdelta_sa2[,i] <- run4$BUGSoutput$mean$b * run4$BUGSoutput$mean$delta
+}
+```
+
+```{r}
+sa2_tbl = rbind(delta_sa2, totaldelta_sa2)
+colnames(sa2_tbl) <- c("ccc = 0.1","ccc = 1","ccc = 10")
+row.names(sa2_tbl) = c("Delta1","Delta2","Delta3","Delta4","Delta5","Delta6","Delta7",
+                        "Delta8","Delta9","Delta10","Delta11","Delta12","Delta13","Deltatotal")
+knitr::kable(sa2_tbl,
+             digits = 3,
+             caption = "Mean at different ccc",
+             align = "ccc")
+```
+
+5.	Report (one very short paragraph and two appropriate tables) your conclusions regarding whether people will pay more for lower pollution or not. The sensitivity results are extremely relevant to your report – be sure to include the results from all of your sensitivity analyses. Also of interest is a list of the most probable models and whether the pollution variable is included in those models. This gets a little messy to report this for all the different priors, so only report this for the primary analysis.  
+
+```{r}
+q5_tbl1 <- rbind(delta_sa1[5,],bdelta_sa1[5,])
+row.names(q5_tbl1) <- c("Delta5","BDelta5")
+q5_tbl2 <- rbind(delta_sa2[5,],bdelta_sa2[5,])
+row.names(q5_tbl2) <- c("Delta5","BDelta5")
+knitr::kable(q5_tbl1,
+             digits = 3,
+             caption = "Mean at different pidelta")
+knitr::kable(q5_tbl2,
+             digits = 3,
+             caption = "Mean at different ccc")
+```
+
+from the result we can see BDelta5 are negative, which indicates people will pay more for lower pollution.
+
+
